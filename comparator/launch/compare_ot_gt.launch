@@ -1,0 +1,32 @@
+<launch>
+
+
+  <node pkg="comparator" name="comparator" type="comparator" output="screen">
+    <!--mandatory params-->
+    <param name="base_dir" type="string" value="PATH_TO_YOUR_RESULT_ROOT_DIRECTORY"/>
+    <param name="xp_name" type="string" value="XP_NAME"/>
+    <param name="output_res" type="double" value="0.2"/>
+    <param name="xp_num" type="int" value="1"/>
+    <param name="n_threads" type="int" value="15"/>
+    <!--metrics choice-->
+    <!-- occcupancy ratio of the occupied pixel in cube to consider a gt cube "occupied"-->
+    <param name="occ_level_selection" type="double" value="0.001"/>
+    <param name="do_ot_metrics" type="bool" value="true"/>
+    <param name="ot_reg" type="double" value="1."/>
+    <param name="ot_maxiter" type="int" value="1000"/>
+    <param name="do_hausdorff_metrics" type="bool" value="true"/>
+    <param name="occ_thres_hausdorff" type="double" value="0.55"/>
+    <param name="reg_distance" type="double" value="0.035"/>
+    <param name="do_dkl_metrics" type="bool" value="true"/>
+
+    <!--params for the limit of the dataset only-->
+    <param name="limit_only" type="bool" value="false"/>
+    <param name="sample_with_occ" type="bool" value="true"/>
+    <param name="sample_half_half" type="bool" value="false"/>
+    <param name="sample_with_ratio" type="bool" value="false"/>
+    <param name="sample_empty_only" type="bool" value="false"/>
+    <param name="n_samples" type="int" value="5"/>
+    <param name="dataset_ratio" type="double" value="0.1"/>
+  </node>
+
+</launch>
