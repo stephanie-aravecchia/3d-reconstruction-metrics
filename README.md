@@ -20,9 +20,10 @@ in `base_folder/` each xp is a subfolder `xp_id` as follows:
 * `3d_grid/img/xp_id` slice_octomap will output the images here
 * `3d_grid/res/obs/xp_id` the comparator wil read in the two img folders, and will output the      result here
 
-<img title="Simu" src="https://github.com/stephanie-aravecchia/unstructured-env-simulator/blob/    main/pics/simu-environment.png" alt="Simu" width="600">
-
-
 ## The simulated environments can be found here:
-
 https://github.com/stephanie-aravecchia/unstructured-env-simulator.git
+
+<img title="Simu" src="https://github.com/stephanie-aravecchia/unstructured-env-simulator/blob/main/pics/simu-environment.png" alt="Simu" width="600">
+
+
+
