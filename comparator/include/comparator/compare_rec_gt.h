@@ -11,13 +11,14 @@
 class ComparatorRecGt : protected BoxTools{
 
     protected:
+    //public:
         std::string base_dir_;
         std::string xp_name_;
+        std::string output_dir_;
         std::vector<std::string> gt_imglist_;
         std::vector<std::string> rec_imglist_;
         double target_res_;
         double img_res_;
-        double ground_thres_; //height starting from minz we discard
         size_t tot_box_;
         size_t counter_{0};
         size_t counter_target_;
@@ -43,6 +44,7 @@ class ComparatorRecGt : protected BoxTools{
         ComparatorDatatypes::BBox constrained_bbox_; 
         ComparatorDatatypes::Offsets rec_offset_;
         ComparatorDatatypes::Offsets gt_offset_;
+        double ground_thres_; //height starting from the bottom we don't use
         ComputeOTMetrics ot_metrics_;
         bool is_dist_metrics_; 
         bool is_dkl_metrics_; 
@@ -50,7 +52,7 @@ class ComparatorRecGt : protected BoxTools{
         int n_threads_;
         double ot_reg_;
         int ot_maxiter_;
-        double occupancy_thres_; //to consider a voxel occupied in the classic metrics
+        double occupancy_thres_; //to consider a voxel occupied only to count n_gt points and n_rect points, the metrics use cov_thresholds 
         double reg_distance_; //to consider a match between rec and gt voxels
         double ot_stopthres_;
 
@@ -62,7 +64,22 @@ class ComparatorRecGt : protected BoxTools{
         double non_observed_l1_;
         double non_observed_dkl_;
         double non_observed_wd_;
-
+        
+        //to calculate the limit of metrics on the dataset:
+        //the values are (sigma, ksize, additional noise)
+        std::array<ComparatorDatatypes::NoiseOnGtParams, 3> noise_on_gt_ = std::array{
+            ComparatorDatatypes::NoiseOnGtParams(0.05,7,0),
+            ComparatorDatatypes::NoiseOnGtParams(0.08,7,0.05),
+            ComparatorDatatypes::NoiseOnGtParams(0.2,11,0.1)
+        };
+        //we define the couple of thresholds used for distance metric such as coverage.
+        //the values are (occupancy likelihood, registration distance)
+        std::array<ComparatorDatatypes::CovThresholds,4> cov_thresholds = std::array{
+            ComparatorDatatypes::CovThresholds(0.8, 0.05),
+            ComparatorDatatypes::CovThresholds(0.8, 0.1),
+            ComparatorDatatypes::CovThresholds(0.7, 0.1),
+            ComparatorDatatypes::CovThresholds(0.7, 0.15),
+        };
         //to test a selection of boxes only
         bool unit_test_;
 
@@ -96,6 +113,9 @@ class ComparatorRecGt : protected BoxTools{
         void calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box);
         //calculate the limit of the Wasserstein distance, with a reconstruction drawned randomly from gt
         void calcLimitMetricFromBox(ComparatorDatatypes::BoxToProcessLimitOnly& box);
+        void calcLimitMetricFromBoxTestOnly(ComparatorDatatypes::BoxToProcessLimitOnly& box, std::ofstream&);
+        void computeLimitMetricsOnVect(ComparatorDatatypes::Metrics&, std::vector<double>&, std::vector<double>&);
+
         void unitTestBox(ComparatorDatatypes::BoxToProcess&);
         void unitTestBox(ComparatorDatatypes::BoxToProcessLimitOnly&);
         
@@ -128,11 +148,11 @@ class ComparatorRecGt : protected BoxTools{
 
     public:
         ComparatorRecGt();
-        ComparatorRecGt(const std::string& dir, const std::string& xp, double target_res, double img_res, 
+        ComparatorRecGt(const std::string& base_dir, const std::string& xp, const std::string& output_dir, double target_res, double img_res, 
                         ComparatorDatatypes::PixBBox pixbox, ComparatorDatatypes::BBox metricsbox,
                         ComparatorDatatypes::Offsets gt_offset, ComparatorDatatypes::Offsets rec_offset, double ground_thres,
                         bool dist_metrics, bool dkl_metrics, bool ot_metrics, int nthreads, 
-                        double ot_reg, int ot_maxiter, double hausdorff_occ_thres, double reg_distance, double ot_stop_thres=1e-9,
+                        double ot_reg, int ot_maxiter, double occ_thres, double ot_stop_thres=1e-9,
                         double divergence_to_unknown=0.1, double non_observed_vi=0, double non_observed_cov=0, double non_observed_acc=0,
                         double non_observed_l1=500, double non_observed_dkl=6600, double non_observed_wd=100, bool unit_test=false, const std::string& test_filename="");
         //determine on which images we can compare, and compare them

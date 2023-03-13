@@ -9,7 +9,6 @@ BoxTools::BoxTools(int box_size) : box_size_(box_size) {}
 BoxTools::BoxTools(int box_size, int img_width, int img_height) : 
     box_size_(box_size), img_width_(img_width), img_height_(img_height) {}
 
-//This needs to be overriden in the inhereted class that will actually deal with the dataset
 //This is just for tests
 void BoxTools::load3DMat(cv::Mat_<uint8_t>& mat, const std::vector<std::string >& imglist) const {
     for (int k{0}; k < box_size_; k++) {
@@ -22,6 +21,7 @@ void BoxTools::load3DMat(cv::Mat_<uint8_t>& mat, const std::vector<std::string >
             for (int j{0}; j < tmp.size().height; j++) {
                 //remainder: opencv: tmp() refers to tmp(row, col)
                 mat(i, j, k) = tmp(j,i);
+                //This is the same that before all the changes
             }
         }
     }
@@ -89,7 +89,6 @@ void BoxTools::get3DProbaImageFromRange(const std::vector<cv::Range>& ranges, co
                 assert(j<img_height_);
                 assert(k<box_size_);
                 out(i-ranges[0].start,j-ranges[1].start,k-ranges[2].start)=(pix2proba(refMat(i,j,k)));//this is (col, row, img)
-                // 
             }
         }
     }
@@ -177,7 +176,7 @@ cv::Size BoxTools::getRandomKSize() const {
     static std::default_random_engine engine(rd());
     std::uniform_int_distribution<int> distri(1, 100);
     int m = distri(engine);
-    //ratios of ksize to pick randomly
+    //TODO define that elsewhere:
     static int n3 = 55; //ksize = (3,3)
     static int n1 = 20; //ksize = (1,1)
     static int n5 = 20; //ksize = (5,5)
@@ -196,6 +195,7 @@ cv::Size BoxTools::getRandomKSize() const {
 
 //get a random ksigma, with a uniform distribution 
 double BoxTools::getRandomKSigma() const {
+    //TODO define that elsewhere:
     static double ksigma = .1;
     static double msigma = .5;
     //in the process we are applying twice the convolution, to have at the end the correct sigma, we divide it by 2
@@ -317,9 +317,66 @@ double BoxTools::getBoxOccupancyRate(const std::vector<cv::Range>& ranges, const
         }
     }
     return static_cast<double>(counter)/(box_size_*box_size_*box_size_);
-} 
+}
 
 void BoxTools::getNoisyGtVector(const std::vector<cv::Range>& ranges, 
+            const cv::Mat_<uint8_t>& refMat, vector<double>& vect, double sigma, int ksize, double additionnal_uniform_noise) const {
+    
+    //we create a 3d mat noisyGT, we initialize it with a copy of the gt selected cube
+    const int mat_sz[3] = {box_size_,box_size_,box_size_};
+    cv::Mat_<double> noisygt = cv::Mat_<double>(3, mat_sz);
+    get3DProbaImageFromRange(ranges, refMat, noisygt);
+    //we apply noise (3 times 2d_filter, in all directions)
+    //first, create two vectors of 10 elements containing 10x10 images
+    //imgvect will contain the images before we apply the filter
+    //output vect will be the blurred images
+    //both are updated at each step
+    std::vector<cv::Mat_<double>> imgvect;
+    imgvect.resize(box_size_);
+    std::vector<cv::Mat_<double>> outputvect;
+    outputvect.resize(box_size_);
+    const int im_sz[2] = {box_size_,box_size_};
+    for (int k{0}; k < box_size_; k++) {
+        outputvect[k] = cv::Mat_<double>(2, im_sz);
+        imgvect[k] = cv::Mat_<double>(2, im_sz);
+    }
+    getVectorOfImagesFromCube(noisygt, imgvect,0);
+    cv::Size kernelsize = cv::Size(7,7);
+    //then we slice the cube in the appropriate direction into a vector of image, we store taht in imgvect
+    //do the convolution on all the images (temporary result saved in outputvect)
+    //we now transform the convoluted images back to a 3dmat noisygt
+    //we repeat on the other dimensions
+    
+    //the "slicing" will be z
+    // done before the if getVectorOfImagesFromCube(noisygt, imgvect,0);
+    for (int k{0}; k < box_size_; k++) {
+        cv::GaussianBlur(imgvect[k], outputvect[k],kernelsize,sigma, 0.0, cv::BORDER_CONSTANT);
+    }
+    getCubeFromVectorOfImages(noisygt, outputvect,0);    
+    
+    //the "slicing" will be j
+    getVectorOfImagesFromCube(noisygt, imgvect,1);
+    for (int k{0}; k < box_size_; k++) {
+        cv::GaussianBlur(imgvect[k], outputvect[k],kernelsize,sigma, 0.0, cv::BORDER_CONSTANT);
+    }
+    getCubeFromVectorOfImages(noisygt, outputvect,1);    
+    
+    //the "slicing" will be i
+    getVectorOfImagesFromCube(noisygt, imgvect,2);
+    for (int k{0}; k < box_size_; k++) {
+        cv::GaussianBlur(imgvect[k], outputvect[k],kernelsize,sigma, 0.0, cv::BORDER_CONSTANT);
+    }
+    getCubeFromVectorOfImages(noisygt, outputvect,2);    
+    //we get the vector back from this noisy cube
+    getVectorFromSingleBox(noisygt, vect);
+    normMinMax(vect);
+    //and finally, we add a uniform noise on the complete vector, if uniform_noise_level is provided
+    if (fabs(additionnal_uniform_noise)>1e-6) {
+        addRandomNoise(vect, additionnal_uniform_noise);
+    } 
+} 
+
+void BoxTools::getNoisyGtVectorDebug(const std::vector<cv::Range>& ranges, 
             const cv::Mat_<uint8_t>& refMat, vector<double>& vect, double uniform_noise_level, bool use_fixed_sigma, double sigma) const {
     bool debug = false;
     std::string dir;
@@ -330,10 +387,10 @@ void BoxTools::getNoisyGtVector(const std::vector<cv::Range>& ranges,
     }
     //If the box contains only 0, or sigma = 0, we skip this step:
     if (!(isBoxOnlyZeros(ranges, refMat))) {
+        //we create a 3d mat noisyGT, we initialize it with a copy of the gt selected cube
         const int mat_sz[3] = {box_size_,box_size_,box_size_};
         cv::Mat_<double> noisygt = cv::Mat_<double>(3, mat_sz);
         get3DProbaImageFromRange(ranges, refMat, noisygt);
-        
         //We save the original GT, with the two methods to make sure they give the same results:
         if (debug) {
             char fname[60];
@@ -371,6 +428,7 @@ void BoxTools::getNoisyGtVector(const std::vector<cv::Range>& ranges,
             //we repeat on the other dimensions
             
             //the "slicing" will be z
+            // done before the if getVectorOfImagesFromCube(noisygt, imgvect,0);
             for (int k{0}; k < box_size_; k++) {
                 cv::GaussianBlur(imgvect[k], outputvect[k],kzise,sigma, 0.0, cv::BORDER_CONSTANT);
             }
@@ -415,10 +473,11 @@ void BoxTools::saveSingleCubeToImg(const cv::Mat_<uint8_t>& refMat, const std::s
     for (int k{0}; k < box_size_; k++) {
         for (int i{0}; i<box_size_; i++) {
             for (int j{0}; j<box_size_; j++) {                    
+                //(row, col)            //(col, row, img)
                 slice_img(j,i) = refMat(i,j,k);
             }
         }
-        char suffix[20];
+        char suffix[10];
         sprintf(suffix,"_%02d.png", k);
         cv::imwrite(dir + fname + suffix, slice_img);
     }
@@ -428,10 +487,11 @@ void BoxTools::saveSingleCubeToImg(const cv::Mat_<double>& refMat, const std::st
     for (int k{0}; k < box_size_; k++) {
         for (int i{0}; i<box_size_; i++) {
             for (int j{0}; j<box_size_; j++) {                    
+                //(row, col)                             //(col, row, img)
                 slice_img(j,i) = getNormalizedPixValue(refMat(i,j,k));
             }
         }
-        char suffix[20];
+        char suffix[10];
         sprintf(suffix,"_%02d.png", k);
         cv::imwrite(dir + fname + suffix, slice_img);
     }
@@ -455,7 +515,7 @@ void BoxTools::saveSampleCubeToImg(const std::vector<cv::Range>& ranges, const c
                 assert(i-ranges[0].start>=0);
                 assert(j-ranges[1].start<rows);
                 assert(i-ranges[0].start<cols);
-                //(row, col)                                      //(col, row, img)
+                //(row, col)                                                    //(col, row, img)
                 slice_img(j-ranges[1].start,i-ranges[0].start) = refMat(i,j,k);
             }
         }
@@ -473,10 +533,11 @@ void BoxTools::saveBoxVectorToImg(const std::vector<double>& imgVect, const std:
     for (int k{0}; k < box_size_; k++) {//img first
         for (int j{0}; j < box_size_; j++) {//then row
             for (int i{0}; i < box_size_; i++) {//then col
+                //this is (row,col)
                 slice_img(j,i) = getNormalizedPixValue(imgVect.at(k*img_stride+j*row_stride+i));
             }
         } 
-        char suffix[20];
+        char suffix[10];
         sprintf(suffix,"_%02d.png", k);
         cv::imwrite(dir + fname + suffix, slice_img);
 

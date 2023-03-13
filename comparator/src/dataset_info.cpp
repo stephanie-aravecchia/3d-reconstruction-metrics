@@ -26,7 +26,7 @@ DatasetInfo::DatasetInfo(std::string base_dir, std::string xp) {
         cerr << "gt and ot resolutions don't match, aborting" << endl;
         exit(EXIT_FAILURE);
     }
-    //We compute the intersections
+    //We compute the intersection
     setIntersectionBBoxes();
     //and now, we calculate the offset, based on the coordinates of xmin, ymin, zmin in the real box
     //we want to know how many pixels we will have to discard when reading the images to be in the intersctionBBox

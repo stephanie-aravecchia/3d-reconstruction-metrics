@@ -51,12 +51,12 @@ void ComputeOTMetrics::setCostMatrixSquareDist() {
     std::cout << "cost Matrix shape is rows, cols: " << M_.rows() << ", " << M_.cols() << std::endl;
 }
 
-void ComputeOTMetrics::normalizeAndAddNoise(Eigen::VectorXd& v) const {
+void ComputeOTMetrics::addConstAndNormalize(Eigen::VectorXd& v) const {
     v = v.array() + 1e-6;
     assert(fabs(v.sum())>=1e-6);
     v = v.array()/v.sum();
 }
-void ComputeOTMetrics::normalizeAndAddNoise(const Eigen::VectorXd& v,Eigen::VectorXd& nv) const {
+void ComputeOTMetrics::addConstAndNormalize(const Eigen::VectorXd& v,Eigen::VectorXd& nv) const {
     Eigen::ArrayXd v_arr = v.array() + 1e-6;
     assert(fabs(v_arr.sum())>=1e-6);
     v_arr/= v_arr.sum();
@@ -66,9 +66,13 @@ void ComputeOTMetrics::normalizeAndAddNoise(const Eigen::VectorXd& v,Eigen::Vect
 
 void ComputeOTMetrics::getOccAndFreeDistri(const Eigen::VectorXd& input, Eigen::VectorXd& occ, Eigen::VectorXd& free) const {
     assert(input.size()>0);
+    //remap to [1,1]
     Eigen::VectorXd mapped = 2 * input.array() -1;
     occ = Eigen::VectorXd::Constant(input.size(), 0);
     free = Eigen::VectorXd::Constant(input.size(), 0);
+    //loop over all elements of a_mapped, 
+    //if >0 copy value to same index in occ
+    //if <0 copy value to same index in free
     for (int i{0}; i <input.size(); ++i) {
         if (mapped[i] > 0) {
             occ[i] = mapped[i];
@@ -81,6 +85,128 @@ void ComputeOTMetrics::getOccAndFreeDistri(const Eigen::VectorXd& input, Eigen::
     free = -1 * free.array();
 }
 
+void ComputeOTMetrics::getCommonCDF(Eigen::VectorXd& out, const Eigen::VectorXd& a, const Eigen::VectorXd& b) const {
+    assert(a.size() == b.size());
+    assert(a.size()>0);
+    //We define the cumulative distribution functions from the probability distributions a and b:
+    
+    Function f(Function::INTER_LOWER);
+    Function g(Function::INTER_LOWER);
+    getCDF(f, a);
+    getCDF(g, b);
+    //we compose the functions H as in Cuturi's paper
+    Function h(Function::INTER_LOWER);
+    h = f.inverse().map(g); 
+    //and now we want the probability distribution back from this function
+    out.resize(a.size());
+    for (int i{0}; i< a.size(); ++i){
+        if (i==0) {
+            out[i] = h(static_cast<double>(i)/a.size());
+        } else {
+            out[i] = h(static_cast<double>(i)/a.size()) - h(static_cast<double>(i-1)/a.size());
+        }
+    }
+} 
+void ComputeOTMetrics::getCDF(Function& f, const std::vector<double>& a) const {
+	std::vector<double> cdf;
+    getCDF(cdf, a);
+    f.set(0,0);
+    for (unsigned int i{0};i<a.size();++i) {
+	    if (i==0) {
+            f.set(static_cast<double>(i)/a.size(),a[i]);
+        } else {
+            f.set(static_cast<double>(i)/a.size(),a[i]+f(i-1));
+        }
+	}
+	f.set(1,1);
+
+}
+void ComputeOTMetrics::getCDF(Function& f, const Eigen::VectorXd& a) const {
+	Eigen::VectorXd cdf;
+    getCDF(cdf, a);
+    f.set(0,0);
+    for (unsigned int i{0};i<a.size();++i) {
+	    if (i==0) {
+            f.set(static_cast<double>(i)/a.size(),a[i]);
+        } else {
+            f.set(static_cast<double>(i)/a.size(),a[i]+f(i-1));
+        }
+	}
+	f.set(1,1);
+
+}
+void ComputeOTMetrics::getCDF(Eigen::VectorXd& out, const Eigen::VectorXd& a) const {
+    assert(a.size()>0);
+    out.resize(a.size());
+    for (int i{0}; i< a.size(); ++i){
+        if (i==0) {
+            out[i] = a[i];
+        } else {
+            out[i] = a[i] + out[i-1];
+        }
+    }
+}       
+void ComputeOTMetrics::getCDF(std::vector<double>& out, const std::vector<double>& a) const {
+    assert(a.size()>0);
+    out.resize(a.size());
+    for (int i{0}; i< a.size(); ++i){
+        if (i==0) {
+            out[i] = a[i];
+        } else {
+            out[i] = a[i] + out[i-1];
+        }
+    }
+}       
+
+void ComputeOTMetrics::drawRandomDistriFromGT(const std::vector<double>& gt, std::vector<double>& p) const {
+    assert(gt.size()>0);
+    p.resize(gt.size());
+    //1 - cdf from GT
+    Function f(Function::INTER_LOWER);
+    getCDF(f, gt);
+    //2 - draw random x in [0.1] and compute cdf^-1(x) (h), append in a vector, repeat 1000 times
+    Function h(Function::INTER_LOWER);
+    h = f.inverse();
+    static std::default_random_engine random_engine;
+    static std::uniform_real_distribution<double> random_dist(0.0,1.0);
+    for (int i{0}; i< gt.size(); ++i){
+        p[i] = h(random_dist(random_engine));
+    }
+    //3 - we now have a 1000 elements vectors following gt
+} 
+
+ComputeOTMetrics::OccFreeWasserstein ComputeOTMetrics::normalizeAndGetSinkhornDistanceSignedNormalized(std::vector<double>& a, std::vector<double>& b) const {
+    assert(a.size() == b.size());
+    double* ptr= &(a.front());
+    size_t size = a.size();
+    Eigen::Map<Eigen::VectorXd> a_eigen(ptr, size);
+    double* ptr1= &(b.front());
+    Eigen::Map<Eigen::VectorXd> b_eigen(ptr1, size);
+    
+    Eigen::VectorXd a_occ;
+    Eigen::VectorXd a_free;
+    getOccAndFreeDistri(a_eigen, a_occ, a_free);
+    addConstAndNormalize(a_occ); 
+    addConstAndNormalize(a_free); 
+    Eigen::VectorXd b_occ;
+    Eigen::VectorXd b_free;
+    getOccAndFreeDistri(b_eigen, b_occ, b_free);
+    addConstAndNormalize(b_free); 
+    addConstAndNormalize(b_occ); 
+    
+    //get the new distribution of probability, as in cuturi's paper:
+    Eigen::VectorXd p_occ;
+    p_occ.resize(size);
+    getCommonCDF(p_occ, a_occ, b_occ);
+    Eigen::VectorXd p_free;
+    p_free.resize(size);
+    getCommonCDF(p_free, a_free, b_free);
+
+    ComputeOTMetrics::OccFreeWasserstein wd;
+    wd.free = getSinkhornDistance(p_free, uniform_);
+    wd.occ = getSinkhornDistance(p_occ, uniform_);
+    return wd;
+}
 ComputeOTMetrics::OccFreeWasserstein ComputeOTMetrics::normalizeAndGetSinkhornDistanceSigned(std::vector<double>& a, std::vector<double>& b) const {
     assert(a.size() == b.size());
     double* ptr= &(a.front());
@@ -92,14 +218,14 @@ ComputeOTMetrics::OccFreeWasserstein ComputeOTMetrics::normalizeAndGetSinkhornDi
     Eigen::VectorXd a_occ;
     Eigen::VectorXd a_free;
     getOccAndFreeDistri(a_eigen, a_occ, a_free);
-    normalizeAndAddNoise(a_occ); 
-    normalizeAndAddNoise(a_free); 
+    addConstAndNormalize(a_occ); 
+    addConstAndNormalize(a_free); 
 
     Eigen::VectorXd b_occ;
     Eigen::VectorXd b_free;
     getOccAndFreeDistri(b_eigen, b_occ, b_free);
-    normalizeAndAddNoise(b_occ); 
-    normalizeAndAddNoise(b_free); 
+    addConstAndNormalize(b_occ); 
+    addConstAndNormalize(b_free); 
 
     ComputeOTMetrics::OccFreeWasserstein wd;
     wd.free = getSinkhornDistance(a_free, b_free);
@@ -119,22 +245,24 @@ double ComputeOTMetrics::normalizeAndGetSinkhornDistance(std::vector<double>& a,
 
 double ComputeOTMetrics::normalizeAndGetSinkhornDistance(const Eigen::VectorXd& a0, const Eigen::VectorXd& b0) const {
     //The sinkhorn algorithm is design to work on probabilities distribution (i.e with sum = 1).
-    //Also pot implementation doesn't deal wiht zeros, so we add "noise" (actually a small constant)
+    //Also this implementation doesn't deal wiht zeros, so we add noise
     Eigen::VectorXd a;
     Eigen::VectorXd b; 
-    normalizeAndAddNoise(a0, a);
-    normalizeAndAddNoise(b0, b);
+    addConstAndNormalize(a0, a);
+    addConstAndNormalize(b0, b);
     return getSinkhornDistance(a, b);
 }
-//Implementation as in POT
 double ComputeOTMetrics::getSinkhornDistance(const Eigen::VectorXd& a, const Eigen::VectorXd& b) const {
     //we don't deal with empty a or b
     //we also don't deal with multiple histograms in b
     assert(a.size()>0);
     assert(b.size()>0);
+    //TODO assert data is already normalized
 #if DEBUG
     std::cout << "a0, b0: " << a0 << "," << b0 << std::endl;
 #endif
+    //The sinkhorn algorithm is design to work on probabilities distribution, with sum = 1.
+    //Also this implementation doesn't deal wiht zeros, so we add noise
     int dim_a = a.size();
     int dim_b = b.size();
 

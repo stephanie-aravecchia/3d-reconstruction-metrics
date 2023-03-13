@@ -5,7 +5,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
-//This class is used to get the general information of the ground truth and recontruction datasets
+//This class computes and stores general information of the ground truth and recontruction datasets
 class DatasetInfo {
     protected:
         double gt_resolution_;
@@ -19,12 +19,12 @@ class DatasetInfo {
         ComparatorDatatypes::Offsets gt_offsets_;
         ComparatorDatatypes::Offsets ot_offsets_;
         
-        //set the values of the intersection bbox of gt and rec dataset
+        //set the values of the max bbox including both gt and rec dataset
         //both in pixel and meters
         void setIntersectionBBoxes();
 
         //get the offset in pixel of a dataset with respect to a bounding box
-        //first is the intersection bbox in meters, second is the bbox from the dataset
+        //first is the outer bbox in meters, second is the bbox from the dataset
         void getOffsets(const ComparatorDatatypes::BBox&, const ComparatorDatatypes::BBox&, ComparatorDatatypes::Offsets&) const;
         
         //get the bounding and the resolution of a dataset from the file containing this information 

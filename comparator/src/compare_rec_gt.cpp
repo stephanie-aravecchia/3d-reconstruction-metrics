@@ -10,17 +10,17 @@
 
 using namespace std;
 
-ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, double target_res, double img_res,
+ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, const std::string& outputdir, double target_res, double img_res,
         ComparatorDatatypes::PixBBox pixbox, ComparatorDatatypes::BBox metricsbox,
         ComparatorDatatypes::Offsets gt_offset, ComparatorDatatypes::Offsets rec_offset, double ground_thres,
-        bool is_dist_metrics, bool is_dkl_metrics, bool is_ot_metrics, int nthreads, double ot_reg, int ot_maxiter, double haussdorff_occ_thres, double reg_distance, double ot_stopthres,
+        bool is_dist_metrics, bool is_dkl_metrics, bool is_ot_metrics, int nthreads, double ot_reg, int ot_maxiter, double occ_thres, double ot_stopthres,
         double divergence_to_unknown_thres, double non_observed_vi, double non_observed_cov, double non_observed_acc, double non_observed_l1,
         double non_observed_dkl, double non_observed_wd,
         bool unit_test, const std::string& test_filename):
-            base_dir_(dir), xp_name_(xp), target_res_(target_res), img_res_(img_res), 
+            base_dir_(dir), xp_name_(xp), output_dir_(outputdir), target_res_(target_res), img_res_(img_res), 
             space_pix_bbox_(pixbox), space_bbox_(metricsbox), rec_offset_(rec_offset), gt_offset_(gt_offset), ground_thres_(ground_thres),
             is_dist_metrics_(is_dist_metrics), is_dkl_metrics_(is_dkl_metrics), is_ot_metrics_(is_ot_metrics),n_threads_(nthreads),
-            ot_reg_(ot_reg), ot_maxiter_(ot_maxiter), occupancy_thres_(haussdorff_occ_thres), reg_distance_(reg_distance), ot_stopthres_(ot_stopthres),
+            ot_reg_(ot_reg), ot_maxiter_(ot_maxiter), occupancy_thres_(occ_thres), ot_stopthres_(ot_stopthres),
             divergence_to_unknown_thres_(divergence_to_unknown_thres), non_observed_vi_(non_observed_vi), non_observed_cov_(non_observed_cov),
             non_observed_acc_(non_observed_acc), non_observed_l1_(non_observed_l1), non_observed_dkl_(non_observed_dkl),
             non_observed_wd_(non_observed_wd), unit_test_(unit_test) {
@@ -30,7 +30,7 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
     img_height_ = space_pix_bbox_.ymax-space_pix_bbox_.ymin;
     box_size_ = static_cast<int>(target_res_/img_res_);
     //if we cannot calculate results at target_res, abort:
-    if (!(fabs(target_res_/img_res_ - box_size_) <= 1e-6)) {
+    if (!(fabs(target_res_/img_res_ - box_size_) <= 1e-9)) {
         cout << "target res: " << target_res_ << " cannot be achieved (output resolution " << box_size_*img_res_ << "). Abort. "<< endl;
         exit(EXIT_FAILURE);
     }
@@ -61,6 +61,7 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
     std::string otlist = ot_base_dir + "list.txt";
     cout << "gt list selected: " << gtlist << endl;
     cout << "ot list selected: " << otlist << endl;
+    cout << "output dir: " << output_dir_ << endl;
     //we need to deal with the index at which the two img lists are aligned, so we start loading at the offset of the other one:
     assert(rec_offset_.x>=0);
     assert(rec_offset_.y>=0);
@@ -76,18 +77,18 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
     getImgList(rec_imglist_, otlist, ot_base_dir, rec_offset_.z); 
     cout << "Ot offset: " << rec_offset_.x << ", " << rec_offset_.y << ", " << rec_offset_.z
         << ". Gt offset: " << gt_offset_.x << ", " << gt_offset_.y << ", " << gt_offset_.z << endl;
-    n_slices_ = static_cast<int>(min(static_cast<unsigned int>(min(rec_imglist_.size(), gt_imglist_.size())), space_pix_bbox_.zmax))+1;
+    n_slices_ = static_cast<int>(min(static_cast<unsigned int>(min(rec_imglist_.size(), gt_imglist_.size())), space_pix_bbox_.zmax-static_cast<int>(ground_thres_/img_res_)))+1;
     cout << "img_width: " << img_width_ << ", " << "img_height: " << img_height_ << ", nslices: " << n_slices_ << endl; 
     cout << "space_bbox_ is set to: " << space_bbox_ << endl;
     assert(n_slices_>0);
     assert(n_slices_ -box_size_ >=0);
     
-    //and finally, we set a constrained_bbox  and a starting index to start the comparaison at a coordinate which is a multiple of res
+    //and finally, we set a constrained_bbox  and a starting index to start the comparaison at a coordinate which is a multiple of re
     //i.e if xmin is -5.28 and res .1, we start the comparaison a -5.20
     //this is mandatory for the comparaison to the observation in next stages (with obs_stat)
     istart_ = getStartingIndex(space_bbox_.xmin);
     jstart_ = getStartingIndex(space_bbox_.ymin);
-    kstart_ = getStartingIndex(space_bbox_.zmin + ground_thres_*img_res_);
+    kstart_ = getStartingIndex(space_bbox_.zmin + ground_thres_);
     cout << "istart_: " << istart_ 
          << ", jstart_: " << jstart_ 
          << ", kstart_: " << kstart_ << endl;
@@ -107,9 +108,13 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
     constrained_bbox_.xmin = space_bbox_.xmin + getStartingDistance(space_bbox_.xmin);
     constrained_bbox_.ymin = space_bbox_.ymin + getStartingDistance(space_bbox_.ymin);
     constrained_bbox_.zmin = space_bbox_.zmin +(ot_load_slice_start + gt_load_slice_start)*img_res_ +ground_thres_+ getStartingDistance(space_bbox_.zmin + ground_thres_+ (ot_load_slice_start + gt_load_slice_start)*img_res_);
-    constrained_bbox_.xmax = constrained_bbox_.xmin + (nx_)*target_res_;
-    constrained_bbox_.ymax = constrained_bbox_.ymin + (ny_)*target_res_;
-    constrained_bbox_.zmax = constrained_bbox_.zmin + (nz_)*target_res_;
+    //Below may fail with rounding, we need to make sure that min + n*target_res stays in space
+    constrained_bbox_.xmax = ((constrained_bbox_.xmin + nx_*target_res_) <= space_bbox_.xmax) ? (constrained_bbox_.xmin + (nx_)*target_res_) : (constrained_bbox_.xmin + (nx_-1)*target_res_ );
+    constrained_bbox_.ymax = ((constrained_bbox_.ymin + ny_*target_res_) <= space_bbox_.ymax) ? (constrained_bbox_.ymin + (ny_)*target_res_) : (constrained_bbox_.ymin + (ny_-1)*target_res_ );
+    constrained_bbox_.zmax = ((constrained_bbox_.zmin + nz_*target_res_) <= space_bbox_.zmax) ? (constrained_bbox_.zmin + (nz_)*target_res_) : (constrained_bbox_.zmin + (nz_-1)*target_res_ );
+    assert(constrained_bbox_.xmax>constrained_bbox_.xmin);
+    assert(constrained_bbox_.ymax>constrained_bbox_.ymin);
+    assert(constrained_bbox_.zmax>constrained_bbox_.zmin);
 
     //constrained bbox should be included in space_box
     cout << "constrainded_bbox_ is set to: " << constrained_bbox_ << endl;
@@ -120,6 +125,9 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
     if (is_ot_metrics_) {
         ot_metrics_ = ComputeOTMetrics(box_size_, box_size_, box_size_, ot_reg_, ot_maxiter_, ot_stopthres_);
         ot_metrics_.setCostMatrixSquareDist();
+    }
+    if (unit_test_) {
+        std::string test_file_path = base_dir_ + "res/obs/" + xp_name_ + "/sample_list_to_test.csv";
     }
 }
 
@@ -253,7 +261,6 @@ void ComparatorRecGt::getImgList(std::vector<std::string >& imglist_vector, cons
     }
     string fname;
     //we discard the first images before we can actually compare:
-    //TODO: this is dangerous if slice_start is larger than the actual img list, we segfault
     for (int i{0}; i < load_slice_start; i++) {
         file >> fname;
     }
@@ -285,7 +292,7 @@ void ComparatorRecGt::load3DMat(cv::Mat_<uint8_t>& mat, const std::vector<std::s
         const ComparatorDatatypes::Offsets& offset, int start_slice) const {
     for (int k{start_slice}; k < start_slice + box_size_; k++) {
         assert(k >= 0);
-        assert(k < imglist.size());
+        assert(k < (int) imglist.size());
         assert(k -start_slice >=0);
         cv::Mat_<uint8_t> tmp = cv::imread(imglist[k], cv::IMREAD_GRAYSCALE);
         assert(tmp.size().height*tmp.size().width >0);
@@ -304,6 +311,7 @@ void ComparatorRecGt::load3DMat(cv::Mat_<uint8_t>& mat, const std::vector<std::s
                 assert(i < img_width_);
                 assert(j < img_height_);
                 assert(k-start_slice < box_size_);
+                //remainder: opencv: tmp() refers to tmp(row, col)
                 mat.at<uint8_t>(i, j, k-start_slice) = tmp.at<uint8_t>(j+offset.y,i+offset.x);
             }
         }
@@ -341,7 +349,7 @@ double ComparatorRecGt::getBoxOccupancyRate(const ComparatorDatatypes::BoxToProc
 }
 
 bool ComparatorRecGt::isSampleDebug(const ComparatorDatatypes::BBox& mbox, double x, double y, double z) const {
-    auto is_nearly_equal = [](double a, double b) {return (fabs(a-b)<=1e-6);};
+    auto is_nearly_equal = [](double a, double b) {return (fabs(a-b)<=1e-9);};
     if ((is_nearly_equal(mbox.xmin,x) && is_nearly_equal(mbox.ymin,y)) && is_nearly_equal(mbox.zmin,z)) {
         return true;
     } else {
@@ -375,12 +383,20 @@ void ComparatorRecGt::unitTestBox(ComparatorDatatypes::BoxToProcess& box){
                 << ", wasserstein_free_remapped: " << box.metrics.wasserstein_free_remapped
                 << ", wasserstein_direct: " << box.metrics.wasserstein_direct
                 << ", dkl: " << box.metrics.dkl
-                << ", surface_coverage: " << box.metrics.surface_coverage
-                << ", reconstruction_accuracy: " << box.metrics.reconstruction_accuracy
+                << ", surface_coverage_1: " << box.metrics.surface_coverage_1
+                << ", surface_coverage_2: " << box.metrics.surface_coverage_2
+                << ", surface_coverage_3: " << box.metrics.surface_coverage_3
+                << ", surface_coverage_4: " << box.metrics.surface_coverage_4
+                << ", reconstruction_accuracy_1: " << box.metrics.reconstruction_accuracy_1
+                << ", reconstruction_accuracy_2: " << box.metrics.reconstruction_accuracy_2
+                << ", reconstruction_accuracy_3: " << box.metrics.reconstruction_accuracy_3
+                << ", reconstruction_accuracy_4: " << box.metrics.reconstruction_accuracy_4
                 << ", volumetric_information: " << box.metrics.volumetric_information
-                << ", emptyness_entropy: " << box.metrics.emptyness_entropy
                 << ", emptyness_l1: " << box.metrics.emptyness_l1
-                << ", n_match: " << box.metrics.n_match
+                << ", n_match_1: " << box.metrics.n_match_1
+                << ", n_match_2: " << box.metrics.n_match_2
+                << ", n_match_3: " << box.metrics.n_match_3
+                << ", n_match_4: " << box.metrics.n_match_4
                 << ", n_rec_points: " << box.metrics.n_rec_points
                 << ", n_gt_points: " << box.metrics.n_gt_points
                 << endl;
@@ -395,38 +411,87 @@ void ComparatorRecGt::getNoisyGtVector(const ComparatorDatatypes::BoxToProcessLi
     BoxTools::getNoisyGtVector(box.ranges,refMat, vect, uniform_noise_level, use_fixed_sigma, sigma);
 } 
 
+//calculate the limit of the Wasserstein distance, with a reconstruction drawned randomly from gt
+void ComparatorRecGt::calcLimitMetricFromBoxTestOnly(ComparatorDatatypes::BoxToProcessLimitOnly& box, std::ofstream& outfile) {
+    vector<double> gt_vector;
+    vector<double> rec_random_vector;
+    vector<double> rec_noisygt_vector;
+    getVectorFromBox(box, gtMatVect_.at(box.index_in_vect), gt_vector);
+    //We will process the SAME vector several times, with different level of noise:
+    //And no uniform noise
+    std::vector<double> sigmas = {0,.2,.4,.6,.8,1.,1.2,1.4,1.6};
+    std::vector<double> levels = {0,.05, .1, .15};
+    for (double level : levels) {
+        for (double sigma: sigmas) {
+            cout << "uniform_noise_level: " << level << ", sigma:" << sigma << endl;
+            getNoisyGtVector(box, gtMatVect_.at(box.index_in_vect), rec_noisygt_vector,level,true,sigma);
+            ComputeOTMetrics::OccFreeWasserstein wasserstein_norm;
+            outfile << setprecision(2);
+            wasserstein_norm = ot_metrics_.normalizeAndGetSinkhornDistanceSignedNormalized(rec_noisygt_vector, gt_vector);
+            outfile << box.mbbox.xmin << " " << box.mbbox.ymin<< " " << box.mbbox.zmin << " "
+                    << sigma << " " << level << " " << wasserstein_norm.occ << " " << wasserstein_norm.free << endl;
+            cout << "wd free: " << wasserstein_norm.free << ", wd occ: " << wasserstein_norm.occ << endl;
+        }
+    } 
+
+}
+
 
 //calculate the limit of the Wasserstein distance, with a reconstruction drawned randomly from gt
 void ComparatorRecGt::calcLimitMetricFromBox(ComparatorDatatypes::BoxToProcessLimitOnly& box) {
     vector<double> gt_vector;
     vector<double> rec_random_vector;
-    vector<double> rec_noisygt_vector;
-    vector<double> rec_unknown_vector(box_size_*box_size_*box_size_, 0.5);
+    
+    //get the ground-truth vector
     getVectorFromBox(box, gtMatVect_.at(box.index_in_vect), gt_vector);
-    
-    box.metrics_ideal.gt_occupancy_rate = getBoxOccupancyRate(box, gtMatVect_.at(box.index_in_vect));    
-    box.metrics_random.gt_occupancy_rate = box.metrics_ideal.gt_occupancy_rate; 
-    
-    //now, we want to calculate two limits for the wasserstein distance
-    //1. limit when comparing gt to noisy gt
-    //2. limit when comparing gt to random
-    
-    double level = .05;
-    double sigma = .5;
-    getNoisyGtVector(box, gtMatVect_.at(box.index_in_vect), rec_noisygt_vector,level,true,sigma);
+    //draw a random reconstruction
     drawRandomDistri(gt_vector.size(), rec_random_vector); 
-    addRandomNoise(rec_unknown_vector, 0.05); 
-    ComputeOTMetrics::OccFreeWasserstein wasserstein;
-    wasserstein = ot_metrics_.normalizeAndGetSinkhornDistanceSigned(rec_noisygt_vector, gt_vector);
-    box.metrics_ideal.wasserstein_occ = wasserstein.occ;
-    box.metrics_ideal.wasserstein_free = wasserstein.free;
-    wasserstein = ot_metrics_.normalizeAndGetSinkhornDistanceSigned(rec_random_vector, gt_vector);
-    box.metrics_random.wasserstein_occ = wasserstein.occ;
-    box.metrics_random.wasserstein_free = wasserstein.free;
-    wasserstein = ot_metrics_.normalizeAndGetSinkhornDistanceSigned(rec_unknown_vector, gt_vector);
-    box.metrics_unknown.wasserstein_occ = wasserstein.occ;
-    box.metrics_unknown.wasserstein_free = wasserstein.free;
 
+    //ideal_conv1
+    //ideal_conv2
+    //ideal_conv3 
+    //random
+
+    //first, we calculate the common info, and the metrics form the random reconstruction:
+    int n_gt_points = ComputeMetrics::getNpoints(gt_vector, 0.1);//in gt, all points >0 are occupied    
+    box.random.n_gt_points = n_gt_points;
+    bool is_gt_empty = isBoxOnlyZeros(box, gtMatVect_.at(box.index_in_vect));
+    if (is_gt_empty) {
+        //we calculate L1 norm between random and gt
+            box.random.emptyness_l1 = ComputeMetrics::getEmptynessL1(rec_random_vector);
+    } else {
+    //for each couple sigma / level AND random:
+        // get noisyGTVector
+        // compute the metrics
+        //random
+        computeLimitMetricsOnVect(box.random, rec_random_vector, gt_vector);
+        vector<double> rec_noisy_gt_vector;
+        //conv1:
+        getNoisyGtVector(box, gtMatVect_.at(box.index_in_vect), rec_noisy_gt_vector, 
+                noise_on_gt_[0].sigma, noise_on_gt_[0].ksize, noise_on_gt_[0].additionnal_uniform_noise);
+        computeLimitMetricsOnVect(box.ideal_conv1, rec_noisy_gt_vector, gt_vector);
+        rec_noisy_gt_vector.clear();
+        //conv2
+        getVectorFromBox(box, gtMatVect_.at(box.index_in_vect), gt_vector);
+        getNoisyGtVector(box, gtMatVect_.at(box.index_in_vect), rec_noisy_gt_vector, 
+                noise_on_gt_[1].sigma, noise_on_gt_[1].ksize, noise_on_gt_[1].additionnal_uniform_noise);
+        computeLimitMetricsOnVect(box.ideal_conv2, rec_noisy_gt_vector, gt_vector);
+        rec_noisy_gt_vector.clear();
+        //conv3:
+        getVectorFromBox(box, gtMatVect_.at(box.index_in_vect), gt_vector);
+        getNoisyGtVector(box, gtMatVect_.at(box.index_in_vect), rec_noisy_gt_vector, 
+                noise_on_gt_[2].sigma, noise_on_gt_[2].ksize, noise_on_gt_[2].additionnal_uniform_noise);
+        computeLimitMetricsOnVect(box.ideal_conv3, rec_noisy_gt_vector, gt_vector);
+    }
+
+}
+void ComparatorRecGt::computeLimitMetricsOnVect(ComparatorDatatypes::Metrics& metrics, std::vector<double>& rec_vector, std::vector<double>& gt_vector) {
+    metrics.volumetric_information = ComputeMetrics::getVolumetricInformation(rec_vector);        
+    metrics.dkl = ComputeMetrics::getKLDivergence(rec_vector, gt_vector);
+    ComputeOTMetrics::OccFreeWasserstein wasserstein;
+    wasserstein = ot_metrics_.normalizeAndGetSinkhornDistanceSigned(rec_vector, gt_vector);
+    metrics.wasserstein_occ_remapped = wasserstein.occ;
+    metrics.wasserstein_free_remapped = wasserstein.free;
 }
 
 //Compute the metrics based on the selection: distance and/or dkl and/or wassserstein
@@ -443,18 +508,71 @@ void ComparatorRecGt::calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box) 
     bool is_gt_empty = isBoxOnlyZeros(box, gtMatVect_.at(box.index_in_vect));
     if (is_dist_metrics_) {
         if (is_observed) {
-            box.metrics.n_match = ComputeMetrics::getBoxNMatch(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
-                        reg_distance_, occupancy_thres_, img_width_, img_height_, box_size_, img_res_);        
             box.metrics.volumetric_information = ComputeMetrics::getVolumetricInformation(rec_vector);        
-            box.metrics.surface_coverage = ComputeMetrics::getSurfaceCoverage(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
-                        reg_distance_, occupancy_thres_, img_width_, img_height_, box_size_, img_res_);        
-            box.metrics.reconstruction_accuracy = ComputeMetrics::getReconstructionAccuracy(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
-                        reg_distance_, occupancy_thres_, img_width_, img_height_, box_size_, img_res_);        
+            //We do that for all 4 couples (likelihood, registration distance) defined
+            //coverage 1
+            int i = 0;
+            box.metrics.n_match_1 = ComputeMetrics::getBoxNMatch(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.surface_coverage_1 = ComputeMetrics::getSurfaceCoverage(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.reconstruction_accuracy_1 = ComputeMetrics::getReconstructionAccuracy(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            //Average Hausdorff Distance and Kappa:
+            box.metrics.ahd_1 = ComputeMetrics::getAverageHausdorffDistance(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.kappa_1 = ComputeMetrics::getKappa(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            //coverage 2
+            i = 1;
+            box.metrics.n_match_2 = ComputeMetrics::getBoxNMatch(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.surface_coverage_2 = ComputeMetrics::getSurfaceCoverage(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.reconstruction_accuracy_2 = ComputeMetrics::getReconstructionAccuracy(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            //coverage 3
+            i = 2;
+            box.metrics.n_match_3 = ComputeMetrics::getBoxNMatch(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.surface_coverage_3 = ComputeMetrics::getSurfaceCoverage(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.reconstruction_accuracy_3 = ComputeMetrics::getReconstructionAccuracy(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            //Average Hausdorff Distance and Kappa:
+            box.metrics.ahd_3 = ComputeMetrics::getAverageHausdorffDistance(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.kappa_3 = ComputeMetrics::getKappa(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            //coverage 4
+            i = 3;
+            box.metrics.n_match_4 = ComputeMetrics::getBoxNMatch(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.surface_coverage_4 = ComputeMetrics::getSurfaceCoverage(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+            box.metrics.reconstruction_accuracy_4 = ComputeMetrics::getReconstructionAccuracy(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
+                        cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);
+
+
         } else {
-            box.metrics.n_match = 0;        
+            box.metrics.n_match_1 = 0;        
+            box.metrics.n_match_2 = 0;        
+            box.metrics.n_match_3 = 0;        
+            box.metrics.n_match_4 = 0;        
             box.metrics.volumetric_information = non_observed_vi_;        
-            box.metrics.surface_coverage = non_observed_cov_;
-            box.metrics.reconstruction_accuracy = non_observed_acc_;
+            box.metrics.surface_coverage_1 = non_observed_cov_;
+            box.metrics.surface_coverage_2 = non_observed_cov_;
+            box.metrics.surface_coverage_3 = non_observed_cov_;
+            box.metrics.surface_coverage_4 = non_observed_cov_;
+            box.metrics.reconstruction_accuracy_1 = non_observed_acc_;
+            box.metrics.reconstruction_accuracy_2 = non_observed_acc_;
+            box.metrics.reconstruction_accuracy_3 = non_observed_acc_;
+            box.metrics.reconstruction_accuracy_4 = non_observed_acc_;
+            box.metrics.ahd_1 = box_size_*sqrt(3)*img_res_;
+            box.metrics.ahd_3 = box_size_*sqrt(3)*img_res_;
+            box.metrics.kappa_1 = -1;
+            box.metrics.kappa_3 = -1;
+
         }
     }
     if (is_gt_empty) {
@@ -494,30 +612,19 @@ void ComparatorRecGt::processSliceInListOfBoxesSample(int start, int end) {
         //we want to calculate the limit only
         //and we save to disk only at the end
         calcLimitMetricFromBox(*it);
-        ++counter;
-        if (counter > (counter_target_/n_threads_)) {
-            std::cout << "progress: " << (static_cast<double>(counter_target_)/sampleOfBoxes_.size())*100 << " %" << std::endl;
-            saveResultsLimitToDisk(counter_target_, sampleOfBoxes_); 
-            counter_target_ += (sampleOfBoxes_.size()/10);
-        }
     }
 }
 
 void ComparatorRecGt::processSliceInListOfBoxes(int start, int end) {
     assert(listOfBoxes_.begin() + end <= listOfBoxes_.end());
-    unsigned int counter{0};
-    cout << "Flag unit_test_ set to: " << boolalpha << unit_test_ << endl;
+    if (unit_test_) {
+        cout << "Flag unit_test_ set to: " << boolalpha << unit_test_ << endl;
+    }
     for (auto it = listOfBoxes_.begin()+start; it!=listOfBoxes_.begin()+end; ++it){
         if (!unit_test_) {  
             calcMetricFromBox(*it);
         } else {
             unitTestBox(*it);
-        }
-        ++counter;
-        if (counter > (counter_target_/n_threads_)) {
-            std::cout << "progress: " << (static_cast<double>(counter_target_)/tot_box_)*100 << " %" << std::endl;
-            saveResultsToDisk(counter_target_); 
-            counter_target_ += (tot_box_/10);
         }
     }
 }
@@ -559,7 +666,7 @@ void ComparatorRecGt::saveCubeToImg(const ComparatorDatatypes::BoxToProcess& box
 
 void ComparatorRecGt::calcLimitWDDataset(int xp_number, bool sample_with_occ, bool sample_half_half, bool sample_empty_only, bool sample_with_ratio, size_t n_samples, double occ_level, double dataset_ratio){
     //check that we can write results to disk at the end:
-    std::string dir = base_dir_ + "res/obs/" + xp_name_ + "/"; 
+    std::string dir = output_dir_ + "/"; 
     char suffix[40];
     
     //load gt dataset
@@ -629,11 +736,6 @@ void ComparatorRecGt::calcLimitWDDataset(int xp_number, bool sample_with_occ, bo
     int tot = sampleOfBoxes_.size();
     int k = tot / n_threads_;
     cout << "sample size is: " << tot << endl;
-    counter_target_ = tot / 10;//means we want to display and save every 10%
-    if (counter_target_ ==0) {
-        counter_target_ = 1;
-    }
-    cout << "counter_target_  set to :  " << counter_target_ << endl;
     
     std::vector<std::shared_ptr<std::thread> > threads;
     threads.resize(n_threads_);
@@ -654,9 +756,10 @@ void ComparatorRecGt::calcLimitWDDataset(int xp_number, bool sample_with_occ, bo
 
 void ComparatorRecGt::compare(int xp_number){
     //check that we can write results to disk at the end:
-    std::string dir = base_dir_ + "res/obs/" + xp_name_ + "/"; 
+    std::string dir = output_dir_ + "/"; 
     res_base_filename_ = dir + "comparaison_new_" + to_string(xp_number);
     resf_short_ = ofstream{res_base_filename_ + ".csv",ios::out};
+    std::cout << "Test writing on: " << res_base_filename_ << std::endl;
     checkFile(resf_short_);
     resf_short_.close();
 
@@ -666,12 +769,7 @@ void ComparatorRecGt::compare(int xp_number){
     //and now we multithread:
     int tot = listOfBoxes_.size();
     int k = tot/n_threads_;
-    counter_target_ = tot_box_/10;
-    if (counter_target_ ==0) {
-        counter_target_ = 1;
-    }
     std::cout << " number of boxes to process: " << tot << std::endl;
-    std::cout << "counter_target_  set to :  " << counter_target_ << "(to display progress only)" << std::endl;
     std::vector<std::shared_ptr<std::thread> > threads;
     threads.resize(n_threads_);
     for (int i{0}; i < n_threads_; ++i) {
@@ -695,10 +793,12 @@ void ComparatorRecGt::saveResultsLimitToDisk(int count, const std::vector<Compar
     sprintf(end_name, "_%09d.csv", count);
     resf_short_ = ofstream{res_base_filename_ + end_name ,ios::out};
     resf_short_ << "x y z"
-                << " wasserstein_ideal_occ wasserstein_ideal_free"
-                << " wasserstein_random_occ wasserstein_random_free"
-                << " wasserstein_unknown_occ wasserstein_unknown_free"
-                << " gt_occ_rate"
+                << " random_emptyness_l1"
+                << " random_wd_occ random_wd_free" 
+                << " ideal_conv1_wd_occ ideal_conv1_wd_free" 
+                << " ideal_conv2_wd_occ ideal_conv2_wd_free" 
+                << " ideal_conv3_wd_occ ideal_conv3_wd_free" 
+                << " n_gt_points"
                 << endl;
 
     for (auto box : samples) {
@@ -707,10 +807,12 @@ void ComparatorRecGt::saveResultsLimitToDisk(int count, const std::vector<Compar
             << box.mbbox.ymin << " "
             << box.mbbox.zmin
             << setprecision(8)
-            << " " << box.metrics_ideal.wasserstein_occ << " " << box.metrics_ideal.wasserstein_free
-            << " " << box.metrics_random.wasserstein_occ << " " << box.metrics_random.wasserstein_free
-            << " " << box.metrics_unknown.wasserstein_occ << " " << box.metrics_unknown.wasserstein_free
-            << " " << box.metrics_ideal.gt_occupancy_rate
+            << " " << box.random.emptyness_l1
+            << " " << box.random.wasserstein_occ_remapped << " " << box.random.wasserstein_free_remapped
+            << " " << box.ideal_conv1.wasserstein_occ_remapped << " " << box.ideal_conv1.wasserstein_free_remapped
+            << " " << box.ideal_conv2.wasserstein_occ_remapped << " " << box.ideal_conv2.wasserstein_free_remapped
+            << " " << box.ideal_conv3.wasserstein_occ_remapped << " " << box.ideal_conv3.wasserstein_free_remapped
+            << " " << box.random.n_gt_points
             << endl;
     }
     resf_short_.close();
@@ -723,6 +825,7 @@ void ComparatorRecGt::saveResultsToDisk(int count) {
     char end_name[20];
     sprintf(end_name, "%09d.csv", count);
     resf_short_ = ofstream{res_base_filename_ + end_name ,ios::out};
+    std::cout <<"Writing results to: " << res_base_filename_ + end_name << std::endl;
     resf_short_ << "x y z";
     if (is_dkl_metrics_) {
         resf_short_ << " dkl";
@@ -731,8 +834,11 @@ void ComparatorRecGt::saveResultsToDisk(int count) {
         resf_short_ << " wasserstein_occ_remapped wasserstein_free_remapped wasserstein_direct";
     }
     if (is_dist_metrics_) {
-        resf_short_ << " surface_coverage reconstruction_accuracy volumetric_information"
-                    << " n_match";
+        resf_short_ << " surface_coverage_1 surface_coverage_2 surface_coverage_3 surface_coverage_4"
+                    << " reconstruction_accuracy_1 reconstruction_accuracy_2 reconstruction_accuracy_3 reconstruction_accuracy_4" 
+                    << " volumetric_information"
+                    << " n_match_1 n_match_2 n_match_3 n_match_4"
+                    << " ahd_1 ahd_3 kappa_1 kappa_3";
     }
     resf_short_ << " emptyness_l2 emptyness_l1 n_rec_points n_gt_points";
     resf_short_ << endl;
@@ -750,8 +856,11 @@ void ComparatorRecGt::saveResultsToDisk(int count) {
             resf_short_ << " " << box.metrics.wasserstein_occ_remapped << " " << box.metrics.wasserstein_free_remapped << " " << box.metrics.wasserstein_direct;
         }
         if (is_dist_metrics_) {
-            resf_short_ << " " << box.metrics.surface_coverage << " " << box.metrics.reconstruction_accuracy << " " << box.metrics.volumetric_information;
-            resf_short_ << " " << box.metrics.n_match;
+            resf_short_ << " " << box.metrics.surface_coverage_1 << " " << box.metrics.surface_coverage_2 << " " << box.metrics.surface_coverage_3 << " " << box.metrics.surface_coverage_4
+                        << " " << box.metrics.reconstruction_accuracy_1  << " " << box.metrics.reconstruction_accuracy_2 << " " << box.metrics.reconstruction_accuracy_3 << " " << box.metrics.reconstruction_accuracy_4 
+                        << " " << box.metrics.volumetric_information;
+            resf_short_ << " " << box.metrics.n_match_1 << " " << box.metrics.n_match_2 << " " << box.metrics.n_match_3 << " " << box.metrics.n_match_4 ;
+            resf_short_ << " " << box.metrics.ahd_1 << " " << box.metrics.ahd_3 << " " << box.metrics.kappa_1 << " " << box.metrics.kappa_3;
         }
         resf_short_ << " " << box.metrics.emptyness_l2 << " " << box.metrics.emptyness_l1; 
         resf_short_ << " " << box.metrics.n_rec_points << " " << box.metrics.n_gt_points; 
@@ -759,8 +868,9 @@ void ComparatorRecGt::saveResultsToDisk(int count) {
     }
     resf_short_.close();
     cout << "we have processed at least: " << counter_target_ << " voxels." << endl;
-    string dir = base_dir_ + "res/obs/" + xp_name_ + "/";
+    string dir = output_dir_+ "/";
     string out_info = dir + "compare_ot_gt_info.txt";
+    std::cout <<"Writing info to: " << out_info << std::endl;
     ofstream out_file_info{out_info,ios::out};
     checkFile(out_file_info);
     out_file_info << "xmin " << constrained_bbox_.xmin << endl
@@ -769,11 +879,7 @@ void ComparatorRecGt::saveResultsToDisk(int count) {
                   << "ymax " << constrained_bbox_.ymax << endl
                   << "zmin " << constrained_bbox_.zmin << endl
                   << "zmax " << constrained_bbox_.zmax << endl
-                  << "res " << target_res_ << endl
-                  << "ot_reg " << ot_reg_ << endl
-                  << "ot_maxiter " << ot_maxiter_ << endl
-                  << "occupancy_thres " << occupancy_thres_ << endl
-                  << "reg_distance " << reg_distance_ << endl;
+                  << "res " << target_res_ << endl;
     out_file_info.close();
      
     cout << "csv results are stored in: " << dir << endl;
@@ -796,12 +902,3 @@ void ComparatorRecGt::save_sample_debug(const ComparatorDatatypes::BoxToProcess&
     sprintf(fname2, "debug_ot_%02d_", debugcount);
     saveSampleCubeToImg(box.ranges, recMatVect_.at(box.index_in_vect), fname2, dir);
 }
-
-static ComparatorRecGt* global_it;
-
-static void sig_handler(int signo) {
-    if (signo == SIGINT) { 
-        global_it->saveResultsToDisk(); 
-    }
-    exit(0);
-};

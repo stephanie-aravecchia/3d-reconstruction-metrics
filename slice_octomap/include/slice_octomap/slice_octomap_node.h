@@ -9,13 +9,14 @@
 #include <array>
 #include "comparator/dataset_info.h"
 
-//This class Slice an Octomap into images
+//Takes an octomap as an input, and slice it into images
 class SliceOctomap {
     protected:
         octomap::OcTree* tree_;
         std::string fname_;
         std::string outdir_;
         std::vector<cv::Mat_<uint8_t> > mat_vector_;
+        std::vector<std::string> img_list_;
         double resolution_;
         double occ_threshold_;
         cv::Size img_size_;
@@ -61,8 +62,9 @@ class SliceOctomap {
         std::array<size_t, 2> getSliceIndexes(const BBox&) const;
         void bboxToPix(const BBox&, PixBBox&) const;
         //save the created slice images to disk
-        void saveSliceImgs() const;
+        void saveSliceImgs();
         void saveBBoxFile() const;
+        void saveImgListFile() const;
 
     public:
         //constructor with the size of the box of the octree read directly from it

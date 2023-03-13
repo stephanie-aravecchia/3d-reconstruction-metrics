@@ -11,6 +11,7 @@ using namespace std;
 
 static ComparatorRecGt* global_it;
 
+//Save when ctrl-C
 static void sig_handler(int signo) {
     if (signo == SIGINT) { 
         global_it->saveResultsToDisk(); 
@@ -18,8 +19,7 @@ static void sig_handler(int signo) {
     exit(0);
 };
 
-
-//This class implements the ROS driver to compare_rec_gt
+//This code is a ROS wrapper on ComparatorRecGT, mostly to ease the use with launchfiles
 class Comparator {
     protected:
     public : 
@@ -28,6 +28,7 @@ class Comparator {
         ros::NodeHandle nh_("~");
         std::string base_dir;
         std::string xp_name;
+        std::string output_dir;
         std::string test_file_name;
         double ot_reg;
         double ot_stop_thres;
@@ -43,8 +44,7 @@ class Comparator {
         bool sample_empty_only;
         size_t nsamples;
         double occ_level_selection;
-        double occ_thres_hausdorff; 
-        double reg_distance; 
+        double occ_thres; 
         double dataset_ratio; 
 
         bool do_ot_metrics;
@@ -61,6 +61,7 @@ class Comparator {
 
         nh_.param<std::string>("base_dir",base_dir,"");
         nh_.param<std::string>("xp_name",xp_name,"");
+        nh_.param<std::string>("output_dir",output_dir,"");
         nh_.param<bool>("limit_only",limit_only,false);
         nh_.param<bool>("do_ot_metrics",do_ot_metrics,true);
         nh_.param<bool>("do_hausdorff_metrics",do_hausdorff_metrics,true);
@@ -81,8 +82,7 @@ class Comparator {
         nh_.param<int>("n_samples",n,5000);
         nsamples = static_cast<size_t>(n);
         nh_.param<double>("occ_level_selection",occ_level_selection,0.001);//ratio of occupied vox in cube
-        nh_.param<double>("occ_thres_hausdorff",occ_thres_hausdorff,0.55);
-        nh_.param<double>("reg_distance",reg_distance,0.035);//1 pixel with 0.02 res
+        nh_.param<double>("occ_thres_hausdorff",occ_thres,0.55);
         nh_.param<double>("dataset_ratio",dataset_ratio,0.1);
         nh_.param<double>("divergence_to_unknown_thres",divergence_to_unknown_thres,0.1);
         nh_.param<double>("non_observed_vi",non_observed_vi,0.0);
@@ -107,15 +107,17 @@ class Comparator {
             << "img resolution: " << img_res << endl 
             << "Now starting the comparison." << endl; 
         
-        ComparatorRecGt comparator(base_dir, xp_name, output_res, img_res, pixbox, metricsbox, 
+        //Regular version of the code, to compare the reconstruction to the GT
+        ComparatorRecGt comparator(base_dir, xp_name, output_dir, output_res, img_res, pixbox, metricsbox, 
                 gt_offsets, ot_offsets, ground_thres, do_hausdorff_metrics, do_dkl_metrics, do_ot_metrics, nthreads, 
-                ot_reg, ot_max_iter, occ_thres_hausdorff, reg_distance, ot_stop_thres,
+                ot_reg, ot_max_iter, occ_thres, ot_stop_thres,
                 divergence_to_unknown_thres, non_observed_vi, non_observed_cov, non_observed_acc, non_observed_l1,
                 non_observed_dkl, non_observed_wd, unit_test, test_file_name);
         cout << "Comparator instance created" << endl;
         global_it = &comparator;
         signal(SIGINT, sig_handler);
 
+        //If we want to compute the limit only of the dataset
         if (limit_only) {
             cout << "We will calculate the limit of the Wasserstein Distance on the dataset only" << endl;
             if (sample_with_occ) {
@@ -147,6 +149,5 @@ class Comparator {
 int main(int argc, char** argv) {
     ros::init(argc, argv, "comparator");
     Comparator comparator;
-    ros::spin();
     return 0;
 };

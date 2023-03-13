@@ -2,18 +2,23 @@ cmake_minimum_required(VERSION 3.0.2)
 project(slice_octomap)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-#add_compile_options(-std=c++17 -UNDEBUG -g -ggdb -O3 -Wall)
-add_compile_options(-std=c++17 -O3)
+add_compile_options(-std=c++17 -UNDEBUG -g -ggdb -O3 -Wall)
+##add_compile_options(-std=c++14)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED roscpp comparator)
+find_package(catkin REQUIRED roscpp comparator)# pot)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(OCTOMAP REQUIRED)
 find_package(OpenCV REQUIRED)
+
+#message(INFO " eigen3 install dir: ${EIGEN3_INCLUDE_DIR}")
+#message(INFO " eigen3 include dir: ${Eigen3_INCLUDE_DIR}")
+#message(INFO " eigen3 lib dir: ${Eigen3_LIBRAIRIES}")
+#message(INFO " eigen3 lib dir: ${Eigen3_LIBS}")
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures

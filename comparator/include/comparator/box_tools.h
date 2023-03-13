@@ -10,9 +10,12 @@
 #include <random>
 
 
-//This class implement box tools used to compare the datasets ground-truth and reconstruction (comparison is in compare_rec_gt)
+//This class compares 2 datasets ground-truth and reconstruction
+//The datasets are composed of :images, image list, and the bounding-box and resolution of the images
+//This comparator loads the same sample of ground-truth and reconstruction, compares it, and save the metrics of the comparaison to disk 
 class BoxTools {
 
+    //protected:
     public:
         int box_size_;
         int img_width_;
@@ -50,7 +53,8 @@ class BoxTools {
         
         //add noise to a ground truth box and retuns a vector, to use to calculate the wd limit of the dataset
         //if the last three arguments are not provided, we pick a random sigma and add uniform noise
-        void getNoisyGtVector(const std::vector<cv::Range>&, const cv::Mat_<uint8_t>&, std::vector<double>&, double uniform_noise_level=.1, bool use_fixed_sigma=false, double sigma=0.) const;
+        void getNoisyGtVector(const std::vector<cv::Range>&, const cv::Mat_<uint8_t>&, std::vector<double>&, double sigma=0.5, int ksize=7, double additionnal_uniform_noise=0) const;
+        void getNoisyGtVectorDebug(const std::vector<cv::Range>&, const cv::Mat_<uint8_t>&, std::vector<double>&, double uniform_noise_level=.1, bool use_fixed_sigma=false, double sigma=0.) const;
         
         //debug
         //last args are: fname, dir
@@ -58,6 +62,7 @@ class BoxTools {
         void saveSingleCubeToImg(const cv::Mat_<uint8_t>&, const std::string&, const std::string&) const;
         void saveSingleCubeToImg(const cv::Mat_<double>&, const std::string&, const std::string&) const;
         void saveBoxVectorToImg(const std::vector<double>&, const std::string&, const std::string&) const;
+        
         
         //utility function to normalize double to color and the inverse
         uint8_t getNormalizedPixValue(double v) const;
