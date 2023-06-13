@@ -2,7 +2,7 @@
 
 This repository contains the code to implement the 3D-reconstruction metrics described in:
 
-> "Measuring 3D-reconstruction quality in probabilistic volumetric maps with the Wasserstein Distance", Stéphanie Aravecchia, Antoine  Richard, Marianne Clausel, Cédric Pradalier, 2023.
+> "Comparing Metrics for Evaluating 3D Reconstruction Quality in Large-Scale Environment Mappinge", Stéphanie Aravecchia, Marianne Clausel, Cédric Pradalier, 2023, currently under review.
 
 ## The main packages are:
 * `mesh_slicer` to slice a mesh into images
