@@ -29,6 +29,8 @@ class BoxTools {
         void getVectorFromBox(const std::vector<cv::Range>&, const cv::Mat_<uint8_t>&, std::vector<double>&) const;
         void getVectorFromSingleBox(const cv::Mat_<double>&, std::vector<double>&) const;
         void getVectorFromSingleBox(const cv::Mat_<uint8_t>&, std::vector<double>&) const;
+        void getSingleBoxFromVector(cv::Mat_<uint8_t>&, const std::vector<double>&) const;
+        void getProbaVectorFromSingleBox(const cv::Mat_<uint8_t>&, std::vector<double>&) const;
         void get3DProbaImageFromRange(const std::vector<cv::Range>&, const cv::Mat_<uint8_t>&, cv::Mat_<double>&) const;
         void get3DProbaImageFromSingleCube(const cv::Mat_<uint8_t>&, cv::Mat_<double>&) const;
         void getVectorOfImagesFromCube(const cv::Mat_<double>&, std::vector<cv::Mat_<double>>&, int) const;
@@ -55,6 +57,7 @@ class BoxTools {
         //if the last three arguments are not provided, we pick a random sigma and add uniform noise
         void getNoisyGtVector(const std::vector<cv::Range>&, const cv::Mat_<uint8_t>&, std::vector<double>&, double sigma=0.5, int ksize=7, double additionnal_uniform_noise=0) const;
         void getNoisyGtVectorDebug(const std::vector<cv::Range>&, const cv::Mat_<uint8_t>&, std::vector<double>&, double uniform_noise_level=.1, bool use_fixed_sigma=false, double sigma=0.) const;
+        void blurSingleBox(cv::Mat_<uint8_t>&, double sigma, int ksize, double additionnal_uniform_noise=0) const;
         
         //debug
         //last args are: fname, dir

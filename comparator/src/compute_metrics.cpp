@@ -14,17 +14,10 @@ double ComputeMetrics::getKLDivergence(const std::vector<double>& rec, const std
     double dkl_sum{0};
     assert(rec.size() == gt.size());
     for (size_t i{0}; i < rec.size(); i++) {
-        double dkl{0};
-        //if Gt is 1:
-        if (fabs(gt[i])>(1-CLOSE_TO_ZERO)) {
-            dkl = (1-rec[i])*log((1-rec[i])/CLOSE_TO_ZERO) + rec[i]*log(rec[i]/(1-CLOSE_TO_ZERO));
-        //if Gt is 0:
-        } else if (fabs(gt[i])<(CLOSE_TO_ZERO)) {
-            dkl = (1-rec[i])*log((1-rec[i])/(1-CLOSE_TO_ZERO)) + rec[i]*log(rec[i]/CLOSE_TO_ZERO);
-        } else {
-            std::cerr << "gt is not binary: " << gt[i] << std::endl;
-            assert((fabs(gt[i]-1) <=CLOSE_TO_ZERO) || (fabs(gt[i])<=CLOSE_TO_ZERO));
-        }
+        assert((fabs(gt[i]-1) <=CLOSE_TO_ZERO) || (fabs(gt[i])<=CLOSE_TO_ZERO));
+        double r = max(CLOSE_TO_ZERO,min(rec[i],1-CLOSE_TO_ZERO));
+        double g = max(CLOSE_TO_ZERO,min(gt[i],1-CLOSE_TO_ZERO));
+        double dkl = (1-r)*log((1-r)/(1-g)) + r*log(r/g);
         dkl_sum += dkl;
     }
     return dkl_sum;
@@ -47,7 +40,7 @@ bool ComputeMetrics::isValue0or1(double v){
     }
     return false;
 }
-//Debug
+
 bool ComputeMetrics::isGTImageBinary(const cv::Mat_<uint8_t>& mat) {
     for (int i{0}; i < mat.size().width; ++i) {
         for (int j{0}; j < mat.size().height; ++j) {
@@ -60,7 +53,6 @@ bool ComputeMetrics::isGTImageBinary(const cv::Mat_<uint8_t>& mat) {
     return true;
 }
 
-//Debug
 bool ComputeMetrics::isGTVectorBinary(const std::vector<double>& gt) {
     for (size_t i{0}; i < gt.size(); i++) {
         if (isValue0or1(gt[i])) {
@@ -321,7 +313,7 @@ double ComputeMetrics::getAverageHausdorffDistance(const ComparatorDatatypes::Bo
     //Symmetric Hausdorf Distance: AHD(A,B) = max (d(A,B), d(B,A))
     double HD_ab = getHausdorffDistance(box, refMat, queryMat, occ_thres, img_width, img_height, box_size, img_res);
     double HD_ba = getHausdorffDistance(box, queryMat, refMat, occ_thres, img_width, img_height, box_size, img_res);
-    return min(HD_ab, HD_ba);
+    return max(HD_ab, HD_ba);
 }
 
 ComputeMetrics::Confusion ComputeMetrics::getConfusionMatrix(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& refMat, const cv::Mat_<uint8_t>& queryMat, 
@@ -337,8 +329,8 @@ ComputeMetrics::Confusion ComputeMetrics::getConfusionMatrix(const ComparatorDat
                 assert(i<img_width);
                 assert(j<img_height);
                 assert(k<box_size);
-                //Look for the positives
-                if (refMat(i,j,k) > getNormalizedPixValue(occ_thres)) {
+                //look for occupied in gt
+		if (refMat(i,j,k) > getNormalizedPixValue(occ_thres)) {
                     //if there a match in rec, add one to TP
                     if (queryMat(i,j,k) > getNormalizedPixValue(occ_thres)) {
                         ++confusion.tp;
@@ -346,9 +338,9 @@ ComputeMetrics::Confusion ComputeMetrics::getConfusionMatrix(const ComparatorDat
                     } else {
                         ++confusion.fn;
                     }
-                //And look for the negatives
-                } else {
-                    //if there is a point, it is a FP
+                //empty in gt
+		} else {
+                    //if there is a point in rec, it is a FP
                     if (queryMat(i,j,k) > getNormalizedPixValue(occ_thres)) {
                         ++confusion.fp;
                         //else, it is a TN
@@ -362,6 +354,43 @@ ComputeMetrics::Confusion ComputeMetrics::getConfusionMatrix(const ComparatorDat
     assert(confusion.tp+confusion.fp+confusion.tn+confusion.fn == box_size * box_size * box_size);
     return confusion;
 }
+ComputeMetrics::Confusion ComputeMetrics::getConfusionMatrixv2(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& refMat, const cv::Mat_<uint8_t>& queryMat, 
+                double occ_thres, double empty_thres, int img_width, int img_height, int box_size, double img_res) {
+    //We loop on all the points in the reconstruction and ground_truth and we count the number of occurences of FP, FN, TP, TN 
+    Confusion confusion;
+    for (int i{box.ranges[0].start}; i<box.ranges[0].end; i++) {
+        for (int j{box.ranges[1].start}; j<box.ranges[1].end; j++) {
+            for (int k{box.ranges[2].start}; k<box.ranges[2].end; k++) {
+                assert(i>=0);
+                assert(j>=0);
+                assert(k>=0);
+                assert(i<img_width);
+                assert(j<img_height);
+                assert(k<box_size);
+                if (refMat(i,j,k) > getNormalizedPixValue(occ_thres)) {
+                    //Look for occupied in gt
+                    if (queryMat(i,j,k) > getNormalizedPixValue(occ_thres)) {
+                        ++confusion.tp;
+                        //if there a match in rec, add one to TP
+                    } else if (queryMat(i,j,k) < getNormalizedPixValue(empty_thres)){
+                        ++confusion.fn;
+                    } else {
+                        //we do nothing it is unknown
+                    }
+                } else {
+                    if (queryMat(i,j,k) > getNormalizedPixValue(occ_thres)) {
+                        ++confusion.fp;
+                    } else if (queryMat(i,j,k) < getNormalizedPixValue(empty_thres)) {
+                        ++confusion.tn;
+                    } else {
+                        //We do nothing, it is unknown
+                    }
+                }
+            }
+        }
+    }
+    return confusion;
+}
 //Following them:
 //Müller, D., Soto-Rey, I. and Kramer, F., 2022. Towards a Guideline for Evaluation Metrics in Medical Image Segmentation. arXiv preprint arXiv:2202.05273.
 double ComputeMetrics::getKappa(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& refMat, const cv::Mat_<uint8_t>& queryMat, 
@@ -372,6 +401,22 @@ double ComputeMetrics::getKappa(const ComparatorDatatypes::BoxToProcess& box, co
     double fn = confusion.fn;
     double tp = confusion.tp;
     double tn = confusion.tn;
+    double fc = ((tn+fn)*(tn+fp)+(fp+tp)*(fn+tp))/(tp+tn+fn+fp);
+    double kap = ((tp+tn) - fc) / (tp+tn+fn+fp -fc);
+    return kap;
+}
+
+double ComputeMetrics::getKappav2(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& refMat, const cv::Mat_<uint8_t>& queryMat, 
+                double occ_thres, double empty_thres, int img_width, int img_height, int box_size, double img_res) {
+    Confusion confusion = getConfusionMatrixv2(box, refMat, queryMat, occ_thres, empty_thres, img_width, img_height, box_size, img_res);
+
+    double fp = confusion.fp; 
+    double fn = confusion.fn;
+    double tp = confusion.tp;
+    double tn = confusion.tn;
+    if ((tp+tn+fn+fp)==0) {
+        return -10;
+    }
 
     double fc = ((tn+fn)*(tn+fp)+(fp+tp)*(fn+tp))/(tp+tn+fn+fp);
     double kap = ((tp+tn) - fc) / (tp+tn+fn+fp -fc);

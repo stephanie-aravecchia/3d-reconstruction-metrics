@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <signal.h>
 #include <unistd.h>
+#include <chrono>
 
 using namespace std;
+
 
 ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, const std::string& outputdir, double target_res, double img_res,
         ComparatorDatatypes::PixBBox pixbox, ComparatorDatatypes::BBox metricsbox,
@@ -16,14 +18,14 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
         bool is_dist_metrics, bool is_dkl_metrics, bool is_ot_metrics, int nthreads, double ot_reg, int ot_maxiter, double occ_thres, double ot_stopthres,
         double divergence_to_unknown_thres, double non_observed_vi, double non_observed_cov, double non_observed_acc, double non_observed_l1,
         double non_observed_dkl, double non_observed_wd,
-        bool unit_test, const std::string& test_filename):
+        bool unit_test, const std::string& test_filename, bool unit_test_all, bool gt_cuboids_only) :
             base_dir_(dir), xp_name_(xp), output_dir_(outputdir), target_res_(target_res), img_res_(img_res), 
             space_pix_bbox_(pixbox), space_bbox_(metricsbox), rec_offset_(rec_offset), gt_offset_(gt_offset), ground_thres_(ground_thres),
             is_dist_metrics_(is_dist_metrics), is_dkl_metrics_(is_dkl_metrics), is_ot_metrics_(is_ot_metrics),n_threads_(nthreads),
             ot_reg_(ot_reg), ot_maxiter_(ot_maxiter), occupancy_thres_(occ_thres), ot_stopthres_(ot_stopthres),
             divergence_to_unknown_thres_(divergence_to_unknown_thres), non_observed_vi_(non_observed_vi), non_observed_cov_(non_observed_cov),
             non_observed_acc_(non_observed_acc), non_observed_l1_(non_observed_l1), non_observed_dkl_(non_observed_dkl),
-            non_observed_wd_(non_observed_wd), unit_test_(unit_test) {
+            non_observed_wd_(non_observed_wd), unit_test_(unit_test), unit_test_all_(unit_test_all) , gt_cuboids_only_(gt_cuboids_only) {
     
     //First, we set all we need to construct our 3d grid
     img_width_ = space_pix_bbox_.xmax-space_pix_bbox_.xmin;
@@ -89,6 +91,7 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
     istart_ = getStartingIndex(space_bbox_.xmin);
     jstart_ = getStartingIndex(space_bbox_.ymin);
     kstart_ = getStartingIndex(space_bbox_.zmin + ground_thres_);
+    //kstart_ = getStartingIndex(space_bbox_.zmin + ground_thres_*img_res_);
     cout << "istart_: " << istart_ 
          << ", jstart_: " << jstart_ 
          << ", kstart_: " << kstart_ << endl;
@@ -129,6 +132,37 @@ ComparatorRecGt::ComparatorRecGt(const std::string& dir, const std::string& xp, 
     if (unit_test_) {
         std::string test_file_path = base_dir_ + "res/obs/" + xp_name_ + "/sample_list_to_test.csv";
     }
+    if (unit_test_all_) {
+        unit_test_dir_ = base_dir_ + "res/obs/" + xp_name_ + "/cuboids/";
+        ofstream debugf = ofstream(unit_test_dir_ + "cuboids_info.csv", ios::out);
+        checkFile(debugf);
+        std::cout <<"Writing unit test cuboids to: " << unit_test_dir_ << std::endl;
+        debugf << "id x y z";
+        if (is_dkl_metrics_) {
+            debugf << " dkl";
+        }
+        if (is_ot_metrics_) {
+            debugf << " wasserstein_occ_remapped wasserstein_free_remapped wasserstein_direct";
+        }
+        if (is_dist_metrics_) {
+            debugf << " surface_coverage_1 surface_coverage_2 surface_coverage_3 surface_coverage_4"
+                        << " reconstruction_accuracy_1 reconstruction_accuracy_2 reconstruction_accuracy_3 reconstruction_accuracy_4" 
+                        << " volumetric_information"
+                        << " n_match_1 n_match_2 n_match_3 n_match_4"
+                        << " ahd_1 ahd_3 kappa_1 kappa_3";
+        }
+        debugf << " emptyness_l2 emptyness_l1 n_rec_points n_gt_points";
+        debugf << endl;
+        }
+    if (gt_cuboids_only_) {
+        unit_test_dir_ = base_dir_ + "res/obs/" + xp_name_ + "/cuboids/";
+        ofstream debugf = ofstream(unit_test_dir_ + "cuboids_info.csv", ios::out);
+        checkFile(debugf);
+        std::cout <<"Writing unit test cuboids to: " << unit_test_dir_ << std::endl;
+        debugf << "id x y z";
+        debugf << " n_gt_points";
+        debugf << endl;
+        }
 }
 
 bool ComparatorRecGt::isQueryBoxIncludedInRef(const ComparatorDatatypes::BBox& q, const ComparatorDatatypes::BBox& r) const {
@@ -360,13 +394,7 @@ bool ComparatorRecGt::isSampleDebug(const ComparatorDatatypes::BBox& mbox, doubl
 void ComparatorRecGt::unitTestBox(ComparatorDatatypes::BoxToProcess& box){
     //if we are in one of the selected boxes, we display the results step by step
     bool do_test = false;
-    if (isSampleDebug(box.mbbox, 28, -1.5, 1.5)) {
-        do_test = true;
-    } else if (isSampleDebug(box.mbbox, 28, -1.5, 2)){
-        do_test = true;
-    } else if (isSampleDebug(box.mbbox, 28, -1.5, 2.5)){
-        do_test = true;
-    } else if (isSampleDebug(box.mbbox, 28, -1.5, 3)){
+    if (isSampleDebug(box.mbbox, -4., 1., 1.)) {
         do_test = true;
     }
 
@@ -400,6 +428,37 @@ void ComparatorRecGt::unitTestBox(ComparatorDatatypes::BoxToProcess& box){
                 << ", n_rec_points: " << box.metrics.n_rec_points
                 << ", n_gt_points: " << box.metrics.n_gt_points
                 << endl;
+        save_sample_debug(box, debug_n);
+        ++debug_n;
+    }
+    
+}
+//For all the boxes, we display the results step by step, and save the images of the cuboids
+void ComparatorRecGt::unitTestBoxAll(ComparatorDatatypes::BoxToProcess& box){
+    static int debug_n = 0;    
+    calcMetricFromBox(box);
+    ComparatorDatatypes::PixBBox pixBox{static_cast<double>(box.ranges[0].start), static_cast<double>(box.ranges[0].end), 
+                                    static_cast<double>(box.ranges[1].start), static_cast<double>(box.ranges[1].end), 
+                                    static_cast<double>(box.index_in_vect), static_cast<double>(box.index_in_vect+box_size_)};
+
+    std::cout << "box: " << box.mbbox.xmin << " " << box.mbbox.ymin << " "  << box.mbbox.zmin 
+            << ", n_rec_points: " << box.metrics.n_rec_points
+            << ", n_gt_points: " << box.metrics.n_gt_points
+            << endl;
+    //save_sample_debug(box.ranges, box.index_in_vect, box.mbbox, pixBox, debug_n);
+    save_sample_debug(box, debug_n);
+    ++debug_n;
+    
+}
+//For all the not empty boxes, save the images of the cuboids
+void ComparatorRecGt::saveGTcuboid(ComparatorDatatypes::BoxToProcess& box){
+    static int debug_n = 0;    
+    getGTInfoOnly(box);
+    ComparatorDatatypes::PixBBox pixBox{static_cast<double>(box.ranges[0].start), static_cast<double>(box.ranges[0].end), 
+                                    static_cast<double>(box.ranges[1].start), static_cast<double>(box.ranges[1].end), 
+                                    static_cast<double>(box.index_in_vect), static_cast<double>(box.index_in_vect+box_size_)};
+
+    if (((box.metrics.n_gt_points>0) && (box.metrics.n_gt_points!=100)) && (box.metrics.n_gt_points!=190)) {
         save_sample_debug(box, debug_n);
         ++debug_n;
     }
@@ -467,6 +526,7 @@ void ComparatorRecGt::calcLimitMetricFromBox(ComparatorDatatypes::BoxToProcessLi
         computeLimitMetricsOnVect(box.random, rec_random_vector, gt_vector);
         vector<double> rec_noisy_gt_vector;
         //conv1:
+        //addintional : 0.05, sigma : 0.5 ksize :7 (verif les xp de l'epoque)
         getNoisyGtVector(box, gtMatVect_.at(box.index_in_vect), rec_noisy_gt_vector, 
                 noise_on_gt_[0].sigma, noise_on_gt_[0].ksize, noise_on_gt_[0].additionnal_uniform_noise);
         computeLimitMetricsOnVect(box.ideal_conv1, rec_noisy_gt_vector, gt_vector);
@@ -493,6 +553,12 @@ void ComparatorRecGt::computeLimitMetricsOnVect(ComparatorDatatypes::Metrics& me
     metrics.wasserstein_occ_remapped = wasserstein.occ;
     metrics.wasserstein_free_remapped = wasserstein.free;
 }
+void ComparatorRecGt::getGTInfoOnly(ComparatorDatatypes::BoxToProcess& box) {
+
+    vector<double> gt_vector;
+    getVectorFromBox(box, gtMatVect_.at(box.index_in_vect), gt_vector);
+    box.metrics.n_gt_points = ComputeMetrics::getNpoints(gt_vector, occupancy_thres_);    
+}
 
 //Compute the metrics based on the selection: distance and/or dkl and/or wassserstein
 void ComparatorRecGt::calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box) {
@@ -504,6 +570,12 @@ void ComparatorRecGt::calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box) 
     box.metrics.n_gt_points = ComputeMetrics::getNpoints(gt_vector, occupancy_thres_);    
     box.metrics.n_rec_points = ComputeMetrics::getNpoints(rec_vector, occupancy_thres_);    
 
+#ifdef COMPUTETIME
+    std::chrono::time_point<std::chrono::high_resolution_clock> start;
+    std::chrono::time_point<std::chrono::high_resolution_clock> finish;
+    std::chrono::duration<double> elapsed;
+#endif
+
     bool is_observed = BoxTools::isBoxObserved(rec_vector, divergence_to_unknown_thres_);
     bool is_gt_empty = isBoxOnlyZeros(box, gtMatVect_.at(box.index_in_vect));
     if (is_dist_metrics_) {
@@ -514,15 +586,47 @@ void ComparatorRecGt::calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box) 
             int i = 0;
             box.metrics.n_match_1 = ComputeMetrics::getBoxNMatch(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
                         cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+#ifdef COMPUTETIME
+            start = std::chrono::high_resolution_clock::now();
+#endif
             box.metrics.surface_coverage_1 = ComputeMetrics::getSurfaceCoverage(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
                         cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+#ifdef COMPUTETIME
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            cov_durations.push_back(static_cast<double>(elapsed.count()));         
+#endif
+#ifdef COMPUTETIME
+            start = std::chrono::high_resolution_clock::now();
+#endif
             box.metrics.reconstruction_accuracy_1 = ComputeMetrics::getReconstructionAccuracy(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
                         cov_thresholds[i].reg_dist, cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+#ifdef COMPUTETIME
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            cov_durations.push_back(static_cast<double>(elapsed.count()));         
+#endif
             //Average Hausdorff Distance and Kappa:
+#ifdef COMPUTETIME
+            start = std::chrono::high_resolution_clock::now();
+#endif
             box.metrics.ahd_1 = ComputeMetrics::getAverageHausdorffDistance(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
                         cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+#ifdef COMPUTETIME
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            ahd_durations.push_back(static_cast<double>(elapsed.count()));         
+#endif
+#ifdef COMPUTETIME
+            start = std::chrono::high_resolution_clock::now();
+#endif
             box.metrics.kappa_1 = ComputeMetrics::getKappa(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
                         cov_thresholds[i].likelihood, img_width_, img_height_, box_size_, img_res_);        
+#ifdef COMPUTETIME
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            kappa_durations.push_back(static_cast<double>(elapsed.count()));         
+#endif
             //coverage 2
             i = 1;
             box.metrics.n_match_2 = ComputeMetrics::getBoxNMatch(box,gtMatVect_.at(box.index_in_vect), recMatVect_.at(box.index_in_vect),
@@ -584,7 +688,15 @@ void ComparatorRecGt::calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box) 
     }
     if (is_dkl_metrics_) {
         if (is_observed) {
+#ifdef COMPUTETIME
+            start = std::chrono::high_resolution_clock::now();
+#endif
             box.metrics.dkl = ComputeMetrics::getKLDivergence(rec_vector, gt_vector);
+#ifdef COMPUTETIME
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            dkl_durations.push_back(static_cast<double>(elapsed.count()));         
+#endif
         } else {
             box.metrics.dkl = non_observed_dkl_;
         }
@@ -593,7 +705,15 @@ void ComparatorRecGt::calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box) 
         if (!is_gt_empty) {
             if (is_observed) {
                 ComputeOTMetrics::OccFreeWasserstein wasserstein;
+#ifdef COMPUTETIME
+            start = std::chrono::high_resolution_clock::now();
+#endif
                 wasserstein = ot_metrics_.normalizeAndGetSinkhornDistanceSigned(rec_vector, gt_vector);
+#ifdef COMPUTETIME
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            wd_durations.push_back(static_cast<double>(elapsed.count())/2);//Because we compute WD occ and WD free         
+#endif
                 box.metrics.wasserstein_occ_remapped = wasserstein.occ;
                 box.metrics.wasserstein_free_remapped = wasserstein.free;
             } else {
@@ -612,6 +732,12 @@ void ComparatorRecGt::processSliceInListOfBoxesSample(int start, int end) {
         //we want to calculate the limit only
         //and we save to disk only at the end
         calcLimitMetricFromBox(*it);
+        ++counter;
+        if (counter > (counter_target_/n_threads_)) {
+            std::cout << "progress: " << (static_cast<double>(counter_target_)/sampleOfBoxes_.size())*100 << " %" << std::endl;
+            saveResultsLimitToDisk(counter_target_, sampleOfBoxes_); 
+            counter_target_ += (sampleOfBoxes_.size()/10);
+        }
     }
 }
 
@@ -620,12 +746,24 @@ void ComparatorRecGt::processSliceInListOfBoxes(int start, int end) {
     if (unit_test_) {
         cout << "Flag unit_test_ set to: " << boolalpha << unit_test_ << endl;
     }
+    if (unit_test_all_) {
+        cout << "Flag unit_test_all_ set to: " << boolalpha << unit_test_all_ << endl;
+    }
     for (auto it = listOfBoxes_.begin()+start; it!=listOfBoxes_.begin()+end; ++it){
-        if (!unit_test_) {  
+        if (!((unit_test_||unit_test_all_)||gt_cuboids_only_))  {  
             calcMetricFromBox(*it);
+        } else if (gt_cuboids_only_) {
+            saveGTcuboid(*it);
+        } else if (unit_test_all_) {
+            unitTestBoxAll(*it);
         } else {
             unitTestBox(*it);
         }
+#ifdef COMPUTETIME
+	if(wd_durations.size()>1000){
+		break;
+	}
+#endif
     }
 }
 //We loop on GT dataset and get N samples of a mimimum level occupancy <level>
@@ -666,7 +804,7 @@ void ComparatorRecGt::saveCubeToImg(const ComparatorDatatypes::BoxToProcess& box
 
 void ComparatorRecGt::calcLimitWDDataset(int xp_number, bool sample_with_occ, bool sample_half_half, bool sample_empty_only, bool sample_with_ratio, size_t n_samples, double occ_level, double dataset_ratio){
     //check that we can write results to disk at the end:
-    std::string dir = output_dir_ + "/"; 
+    std::string dir = base_dir_ + "res/obs/" + xp_name_ + "/"; 
     char suffix[40];
     
     //load gt dataset
@@ -692,7 +830,8 @@ void ComparatorRecGt::calcLimitWDDataset(int xp_number, bool sample_with_occ, bo
         sprintf(suffix, "_sample_half_half_occ_%.02f", occ_level);
         res_base_filename_ = dir + "limit_dataset_" + to_string(xp_number) + suffix;
         resf_short_ = ofstream{res_base_filename_ + ".csv",ios::out};
-        checkFile(resf_short_);
+	std::cout << res_base_filename_ + ".csv"<< std::endl;
+	checkFile(resf_short_);
         resf_short_.close();
         
         cout << "will sample at max " << n_samples/2 << " with an occupancy ratio of " << occ_level << "and as many empty." << endl;
@@ -736,6 +875,11 @@ void ComparatorRecGt::calcLimitWDDataset(int xp_number, bool sample_with_occ, bo
     int tot = sampleOfBoxes_.size();
     int k = tot / n_threads_;
     cout << "sample size is: " << tot << endl;
+    counter_target_ = tot / 10;//means I want to display and save every 5%
+    if (counter_target_ ==0) {
+        counter_target_ = 1;
+    }
+    cout << "counter_target_  set to :  " << counter_target_ << endl;
     
     std::vector<std::shared_ptr<std::thread> > threads;
     threads.resize(n_threads_);
@@ -766,9 +910,17 @@ void ComparatorRecGt::compare(int xp_number){
     getListOfBoxes();
     loadCompleteDataset();
     
+    
     //and now we multithread:
     int tot = listOfBoxes_.size();
     int k = tot/n_threads_;
+    counter_target_ = tot_box_/10;
+    if (counter_target_ ==0) {
+        counter_target_ = 1;
+    }
+#ifdef COMPUTETIME
+    n_threads_=1;
+#endif	
     std::cout << " number of boxes to process: " << tot << std::endl;
     std::vector<std::shared_ptr<std::thread> > threads;
     threads.resize(n_threads_);
@@ -784,7 +936,8 @@ void ComparatorRecGt::compare(int xp_number){
         threads[i]->join();
     }
 
-    saveResultsToDisk(tot); 
+    saveResultsToDisk(tot);
+
 }
 
 void ComparatorRecGt::saveResultsLimitToDisk(int count, const std::vector<ComparatorDatatypes::BoxToProcessLimitOnly>& samples) {
@@ -883,22 +1036,76 @@ void ComparatorRecGt::saveResultsToDisk(int count) {
     out_file_info.close();
      
     cout << "csv results are stored in: " << dir << endl;
+#ifdef COMPUTETIME
+    resf_short_ = ofstream{res_base_filename_ + "wd_time.csv" ,ios::out};
+    for (auto v : wd_durations) {
+        resf_short_ << v << endl;
+    }
+    resf_short_.close();
+    resf_short_ = ofstream{res_base_filename_ + "cov_time.csv" ,ios::out};
+    for (auto v : cov_durations) {
+        resf_short_ << v << endl;
+    }
+    resf_short_.close();
+    resf_short_ = ofstream{res_base_filename_ + "acc_time.csv" ,ios::out};
+    for (auto v : acc_durations) {
+        resf_short_ << v << endl;
+    }
+    resf_short_.close();
+    resf_short_ = ofstream{res_base_filename_ + "kappa_time.csv" ,ios::out};
+    for (auto v : kappa_durations) {
+        resf_short_ << v << endl;
+    }
+    resf_short_.close();
+    resf_short_ = ofstream{res_base_filename_ + "dkl_time.csv" ,ios::out};
+    for (auto v : dkl_durations) {
+        resf_short_ << v << endl;
+    }
+    resf_short_.close();
+    resf_short_ = ofstream{res_base_filename_ + "ahd_time.csv" ,ios::out};
+    for (auto v : ahd_durations) {
+        resf_short_ << v << endl;
+    }
+    resf_short_.close();
+    
+
+#endif 
 
 }
 void ComparatorRecGt::save_sample_debug(const ComparatorDatatypes::BoxToProcess& box, int debugcount) const {
-    string dir = base_dir_ + "res/obs/" + xp_name_ + "/";
-    ofstream debugf = ofstream(dir + "sample_debug.csv", ios::app);
-    checkFile(debugf);
-    debugf << debugcount << " "
-           << fixed << setprecision(2)
-           << box.mbbox.xmin << " "
-           << box.mbbox.ymin << " "
-           << box.mbbox.zmin << endl;
-    
+    ofstream debugf = ofstream(unit_test_dir_ + "cuboids_info.csv", ios::app);
+    debugf  << debugcount << " "
+            << fixed << setprecision(2) 
+            << box.mbbox.xmin << " "
+            << box.mbbox.ymin << " "
+            << box.mbbox.zmin;
+    if (!gt_cuboids_only_) {
+   	debugf << setprecision(8);
+        if (is_dkl_metrics_) {
+            debugf << " " << box.metrics.dkl;
+        }
+        if (is_ot_metrics_) {
+            debugf << " " << box.metrics.wasserstein_occ_remapped << " " << box.metrics.wasserstein_free_remapped << " " << box.metrics.wasserstein_direct;
+        }
+        if (is_dist_metrics_) {
+            debugf << " " << box.metrics.surface_coverage_1 << " " << box.metrics.surface_coverage_2 << " " << box.metrics.surface_coverage_3 << " " << box.metrics.surface_coverage_4
+                        << " " << box.metrics.reconstruction_accuracy_1  << " " << box.metrics.reconstruction_accuracy_2 << " " << box.metrics.reconstruction_accuracy_3 << " " << box.metrics.reconstruction_accuracy_4 
+                        << " " << box.metrics.volumetric_information;
+            debugf << " " << box.metrics.n_match_1 << " " << box.metrics.n_match_2 << " " << box.metrics.n_match_3 << " " << box.metrics.n_match_4 ;
+            debugf << " " << box.metrics.ahd_1 << " " << box.metrics.ahd_3 << " " << box.metrics.kappa_1 << " " << box.metrics.kappa_3;
+        }
+        debugf << " " << box.metrics.emptyness_l2 << " " << box.metrics.emptyness_l1;	
+        debugf << " " << box.metrics.n_rec_points ;
+    }
+    debugf << " " << box.metrics.n_gt_points; 
+    debugf << endl;
+    debugf.close(); 
     char fname1[40];
-    sprintf(fname1, "debug_gt_%02d_", debugcount);
-    saveSampleCubeToImg(box.ranges, gtMatVect_.at(box.index_in_vect), fname1, dir);
-    char fname2[40];
-    sprintf(fname2, "debug_ot_%02d_", debugcount);
-    saveSampleCubeToImg(box.ranges, recMatVect_.at(box.index_in_vect), fname2, dir);
+    sprintf(fname1, "cuboid_gt_%06d_", debugcount);
+    saveSampleCubeToImg(box.ranges, gtMatVect_.at(box.index_in_vect), fname1, unit_test_dir_);
+    if (!gt_cuboids_only_) {
+	    char fname2[40];
+	    sprintf(fname2, "cuboid_ot_%06d_", debugcount);
+	    saveSampleCubeToImg(box.ranges, recMatVect_.at(box.index_in_vect), fname2, unit_test_dir_);
+    }
 }

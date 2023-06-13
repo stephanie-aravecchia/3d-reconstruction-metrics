@@ -139,6 +139,7 @@ add_library(compare_rec_gt src/compare_rec_gt.cpp)
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(comparator src/comparator.cpp)
+add_executable(evaluate_metrics src/evaluate_metrics.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -183,6 +184,15 @@ add_executable(comparator src/comparator.cpp)
    ${catkin_LIBRARIES}
    ${OCTOMAP_LIBRARIES}
    ${OpenCV_LIBS}
+ )
+ target_link_libraries(evaluate_metrics
+   compute_metrics
+   compute_ot_metrics
+   box_tools
+   compare_rec_gt
+   ${catkin_LIBRARIES}
+   Eigen3::Eigen
+   stdc++fs
  )
 
 #############

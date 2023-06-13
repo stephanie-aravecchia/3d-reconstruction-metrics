@@ -5,13 +5,14 @@
 #include "comparator/box_tools.h"
 
 
+#define COMPUTETIME 0
+
 //This class compares 2 datasets ground-truth and reconstruction
 //The datasets are composed of :images, image list, and the bounding-box and resolution of the images
 //This comparator loads the same sample of ground-truth and reconstruction, compares it, and save the metrics of the comparaison to disk 
 class ComparatorRecGt : protected BoxTools{
 
     protected:
-    //public:
         std::string base_dir_;
         std::string xp_name_;
         std::string output_dir_;
@@ -82,7 +83,20 @@ class ComparatorRecGt : protected BoxTools{
         };
         //to test a selection of boxes only
         bool unit_test_;
+        bool unit_test_all_;
+        bool gt_cuboids_only_;
+        std::string unit_test_dir_;
 
+#ifdef COMPUTETIME
+
+        std::vector<double> wd_durations;
+        std::vector<double> cov_durations;
+        std::vector<double> acc_durations;
+        std::vector<double> kappa_durations;
+        std::vector<double> dkl_durations;
+        std::vector<double> ahd_durations;
+
+#endif
         //get the list of img path we will load from the img list on disk and the directory
         //we start loading with an offset
         void getImgList(std::vector<std::string >&, const std::string&, const std::string&, int) const;
@@ -111,14 +125,18 @@ class ComparatorRecGt : protected BoxTools{
         
         //Determine which metric will be used, call it appropriately, and store the results
         void calcMetricFromBox(ComparatorDatatypes::BoxToProcess& box);
+        void getGTInfoOnly(ComparatorDatatypes::BoxToProcess& box);
         //calculate the limit of the Wasserstein distance, with a reconstruction drawned randomly from gt
         void calcLimitMetricFromBox(ComparatorDatatypes::BoxToProcessLimitOnly& box);
         void calcLimitMetricFromBoxTestOnly(ComparatorDatatypes::BoxToProcessLimitOnly& box, std::ofstream&);
         void computeLimitMetricsOnVect(ComparatorDatatypes::Metrics&, std::vector<double>&, std::vector<double>&);
 
+        void unitTestBoxAll(ComparatorDatatypes::BoxToProcess&);
+        void saveGTcuboid(ComparatorDatatypes::BoxToProcess&);
         void unitTestBox(ComparatorDatatypes::BoxToProcess&);
         void unitTestBox(ComparatorDatatypes::BoxToProcessLimitOnly&);
         
+
         void getVectorFromBox(const ComparatorDatatypes::BoxToProcess&, const cv::Mat_<uint8_t>&, std::vector<double>&) const;
         void getVectorFromBox(const ComparatorDatatypes::BoxToProcessLimitOnly&, const cv::Mat_<uint8_t>&, std::vector<double>&) const;
         void getNoisyGtVector(const ComparatorDatatypes::BoxToProcessLimitOnly&, const cv::Mat_<uint8_t>&, std::vector<double>&, double uniform_noise_level=.1, bool use_fixed_sigma=false, double sigma=0.) const;
@@ -154,7 +172,7 @@ class ComparatorRecGt : protected BoxTools{
                         bool dist_metrics, bool dkl_metrics, bool ot_metrics, int nthreads, 
                         double ot_reg, int ot_maxiter, double occ_thres, double ot_stop_thres=1e-9,
                         double divergence_to_unknown=0.1, double non_observed_vi=0, double non_observed_cov=0, double non_observed_acc=0,
-                        double non_observed_l1=500, double non_observed_dkl=6600, double non_observed_wd=100, bool unit_test=false, const std::string& test_filename="");
+                        double non_observed_l1=500, double non_observed_dkl=6600, double non_observed_wd=100, bool unit_test=false, const std::string& test_filename="", bool unit_test_all=false, bool gt_cuboids_only=false);
         //determine on which images we can compare, and compare them
         void compare(int xp_number);
         //calculate the limit of the wasserstein distance based on a sample of GT

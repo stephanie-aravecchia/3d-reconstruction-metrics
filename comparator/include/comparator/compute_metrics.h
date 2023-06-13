@@ -5,7 +5,7 @@
 #include "comparator/datatypes.h"
 
 
-//Implementation of the metrics computation
+//Here we implement some metrics used in compare rec gt
 namespace ComputeMetrics {
     
         //Occupied space metrics
@@ -50,12 +50,20 @@ namespace ComputeMetrics {
         //Computes the confusion matrix of the reconstruction vs ground_truth
         Confusion getConfusionMatrix(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& gtMat, const cv::Mat_<uint8_t>& recMat, 
                         double occ_thres, int img_width, int img_height, int box_size, double img_res);
+        
+        //Computes the confusion matrix of the reconstruction vs ground_truth
+        //With different thresholds on occupancy and emptyness
+        Confusion getConfusionMatrixv2(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& gtMat, const cv::Mat_<uint8_t>& recMat, 
+                        double occ_thres, double empty_thres, int img_width, int img_height, int box_size, double img_res);
 
         //Compute the Cohen's Kappa Metric
         //ref_mat is the GT
         double getKappa(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& gtMat, const cv::Mat_<uint8_t>& recMat, 
                         double occ_thres, int img_width, int img_height, int box_size, double img_res);
-        
+
+        //same, but with the confusion compute with 2 differents thresholds: on occupancy and on emptyness 
+        double getKappav2(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& gtMat, const cv::Mat_<uint8_t>& recMat, 
+                        double occ_thres, double empty_thres, int img_width, int img_height, int box_size, double img_res);
         
         double getSurfaceCoverage(const ComparatorDatatypes::BoxToProcess& box, const cv::Mat_<uint8_t>& gtMat, const cv::Mat_<uint8_t>& recMat, 
                         double reg_dist, double occ_thres, int img_width, int img_height, int box_size, double img_res);
